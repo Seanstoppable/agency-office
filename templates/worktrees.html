@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Worktrees — Agency{% endblock %}
+
+{% block content %}
+<div style="padding-top: 16px;">
+    <h2 style="font-size: 18px; margin-bottom: 16px;">Git Worktrees</h2>
+    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+        Active worktrees across your work directory. Merged branches can be safely cleaned up.
+    </p>
+
+    {% if worktrees %}
+    <div class="session-list" style="display: flex; flex-direction: column; gap: 8px;">
+        {% for wt in worktrees %}
+        <div class="session-card {% if wt.merged %}{% endif %}">
+            <div class="session-main">
+                <div class="session-summary">{{ wt.name }}</div>
+                <div class="session-meta">
+                    {% if wt.branch %}
+                    <span class="badge badge-branch">⎇ {{ wt.branch }}</span>
+                    {% endif %}
+                    {% if wt.merged == true %}
+                    <span class="badge" style="background: rgba(63, 185, 80, 0.15); color: var(--accent-green);">✓ Merged</span>
+                    {% elif wt.merged == false %}
+                    <span class="badge" style="background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow);">Open</span>
+                    {% endif %}
+                    {% if wt.dirty %}
+                    <span class="badge" style="background: rgba(248, 81, 73, 0.15); color: var(--accent-red);">Dirty</span>
+                    {% else %}
+                    <span class="badge" style="background: rgba(63, 185, 80, 0.1); color: var(--text-dim);">Clean</span>
+                    {% endif %}
+                    <span style="font-family: monospace; font-size: 11px;">{{ wt.path }}</span>
+                </div>
+            </div>
+            <div class="session-actions">
+                {% if wt.merged %}
+                <button class="btn" style="color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
+                        onclick="cleanupWorktree('{{ wt.path }}', '{{ wt.branch }}', this)">
+                    🗑 Clean Up
+                </button>
+                {% endif %}
+                <button class="btn btn-primary" onclick="launchInWorktree('{{ wt.path }}')">Open Session</button>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No worktrees found in ~/code/work/</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+async function cleanupWorktree(path, branch, btn) {
+    if (!confirm(`Remove worktree ${path} and delete branch ${branch}?`)) return;
+    btn.disabled = true;
+    btn.textContent = 'Removing...';
+    try {
+        const r = await fetch('/api/cleanup-worktree', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({path, branch})
+        });
+        const data = await r.json();
+        showToast(data.message);
+        if (data.status === 'ok') {
+            btn.closest('.session-card').style.opacity = '0.3';
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+    btn.disabled = false;
+}
+
+function launchInWorktree(path) {
+    document.getElementById('launchCwd').value = path;
+    showLaunchModal();
+}
+</script>
+{% endblock %}

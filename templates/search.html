@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Search — Agency{% endblock %}
+{% block nav_search %}active{% endblock %}
+
+{% block content %}
+<div style="padding-top: 16px;">
+    <h2 style="font-size: 18px; margin-bottom: 16px;">Search Sessions</h2>
+
+    <form action="/search" method="get">
+        <div class="search-box">
+            <input type="text" name="q" class="search-input"
+                   placeholder="Search across all sessions (e.g., 'SSRF fix', 'ServiceBus', 'credentials.gradle')..."
+                   value="{{ query }}" autofocus>
+            <button type="submit" class="btn btn-primary">Search</button>
+        </div>
+    </form>
+
+    {% if query %}
+    <div style="margin-bottom: 16px; font-size: 13px; color: var(--text-muted);">
+        {{ results | length }} result{% if results | length != 1 %}s{% endif %} for "<strong style="color: var(--text);">{{ query }}</strong>"
+    </div>
+    {% endif %}
+
+    {% for r in results %}
+    <div class="search-result">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <a href="/session/{{ r.session_id }}" style="font-size: 14px; font-weight: 500;">
+                {{ r.summary or 'Untitled session' }}
+            </a>
+            <span style="font-size: 11px; color: var(--text-dim);">{{ r.updated_at | time_ago }}</span>
+        </div>
+        <div class="search-result-source">
+            {{ r.source_type }}
+            {% if r.repository %}
+            · <span class="badge badge-repo" style="font-size: 10px;">{{ r.repository | short_repo }}</span>
+            {% endif %}
+            {% if r.branch %}
+            · <span style="font-size: 11px;">{{ r.branch }}</span>
+            {% endif %}
+        </div>
+        <div class="search-result-content">
+            {{ r.content | truncate(300) }}
+        </div>
+    </div>
+    {% endfor %}
+
+    {% if query and not results %}
+    <div class="empty-state">
+        No results found. Try different keywords or use OR for alternatives (e.g., "auth OR login").
+    </div>
+    {% endif %}
+
+    {% if not query %}
+    <div class="empty-state">
+        <p style="font-size: 14px;">Search across all {{ total_sessions if total_sessions is defined else '' }} session conversations, checkpoints, and file changes.</p>
+        <p style="font-size: 12px; margin-top: 8px;">Supports FTS5 syntax: use OR for alternatives, quotes for exact phrases.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

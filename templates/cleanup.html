@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% block title %}Cleanup — Agency{% endblock %}
+{% block nav_cleanup %}active{% endblock %}
+
+{% block content %}
+<div style="padding-top: 16px;">
+    <h2 style="font-size: 18px; margin-bottom: 8px;">Session Cleanup</h2>
+    <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+        Find and purge sessions that no longer have value. Purge removes both the session folder and database entries.
+    </p>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+        <div class="stat">
+            <span class="stat-value">{{ candidates | length }}</span>
+            <span class="stat-label">Candidates</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ total_size | format_size }}</span>
+            <span class="stat-label">Reclaimable</span>
+        </div>
+        <div class="stat">
+            <span class="stat-value">{{ stale_locks }}</span>
+            <span class="stat-label">Stale Locks</span>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <form method="get" action="/cleanup" style="display: flex; gap: 16px; align-items: center; margin-bottom: 24px; flex-wrap: wrap;">
+        <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" name="no_summary" value="true" {% if filters.no_summary %}checked{% endif %}
+                   style="accent-color: var(--accent);">
+            No summary
+        </label>
+        <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="checkbox" name="low_turns" value="true" {% if filters.low_turns %}checked{% endif %}
+                   style="accent-color: var(--accent);">
+            ≤1 turn (abandoned)
+        </label>
+        <label style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+            Older than
+            <input type="number" name="older_than_days" value="{{ filters.older_than_days }}" min="0" max="365"
+                   style="width: 60px; padding: 4px 8px; background: var(--bg-secondary); border: 1px solid var(--border);
+                          border-radius: 4px; color: var(--text); font-size: 13px;">
+            days
+        </label>
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
+    </form>
+
+    <!-- Bulk actions -->
+    <div style="display: flex; gap: 8px; margin-bottom: 16px; align-items: center;">
+        <button class="btn" onclick="selectAll(true)">Select All</button>
+        <button class="btn" onclick="selectAll(false)">Deselect All</button>
+        <button class="btn" onclick="selectByReason('no_summary')">Select: No Summary</button>
+        <button class="btn" onclick="selectByReason('low_turns')">Select: ≤1 Turn</button>
+        <button class="btn" onclick="selectByReason('old')">Select: Old</button>
+        <span style="flex: 1;"></span>
+        <span id="selectionCount" style="font-size: 13px; color: var(--text-muted);"></span>
+        {% if stale_locks > 0 %}
+        <button class="btn" style="color: var(--accent-yellow); border-color: rgba(210, 153, 34, 0.3);"
+                onclick="cleanStale()">
+            🧹 Clean {{ stale_locks }} Stale Locks
+        </button>
+        {% endif %}
+        <button class="btn" style="color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
+                onclick="purgeSelected()" id="purgeBtn" disabled>
+            🗑 Purge Selected
+        </button>
+    </div>
+
+    <!-- Session list -->
+    {% if candidates %}
+    <div class="session-list" style="display: flex; flex-direction: column; gap: 4px;">
+        {% for c in candidates %}
+        <div class="session-card cleanup-row" data-session-id="{{ c.id }}" data-reasons="{{ c.reasons | join(',') }}">
+            <div style="display: flex; align-items: center; gap: 12px; min-width: 0;">
+                <input type="checkbox" class="cleanup-check" value="{{ c.id }}"
+                       onchange="updateSelectionCount()"
+                       style="accent-color: var(--accent); flex-shrink: 0;">
+                <div class="session-main">
+                    <div class="session-summary">
+                        {% if c.summary %}
+                            {{ c.summary | truncate(70) }}
+                        {% else %}
+                            <span style="color: var(--text-dim); font-style: italic;">No summary</span>
+                        {% endif %}
+                    </div>
+                    <div class="session-meta">
+                        {% if c.repository %}
+                        <span class="badge badge-repo">{{ c.repository | short_repo }}</span>
+                        {% endif %}
+                        {% if c.branch %}
+                        <span class="badge badge-branch">⎇ {{ c.branch }}</span>
+                        {% endif %}
+                        {% for reason in c.reasons %}
+                            {% if reason == 'no_summary' %}
+                            <span class="badge" style="background: rgba(210, 153, 34, 0.15); color: var(--accent-yellow);">No summary</span>
+                            {% elif reason == 'low_turns' %}
+                            <span class="badge" style="background: rgba(188, 140, 255, 0.15); color: var(--accent-purple);">≤1 turn</span>
+                            {% elif reason == 'old' %}
+                            <span class="badge" style="background: rgba(248, 81, 73, 0.1); color: var(--accent-red);">{{ c.age_days }}d old</span>
+                            {% endif %}
+                        {% endfor %}
+                        <span style="font-size: 11px; color: var(--text-dim);">{{ c.folder_size | format_size }}</span>
+                        <span style="font-size: 11px; color: var(--text-dim);">{{ c.turn_count or 0 }} turns</span>
+                    </div>
+                </div>
+            </div>
+            <div class="session-actions">
+                <a href="/session/{{ c.id }}" class="btn">View</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <p>No cleanup candidates match the current filters. 🎉</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Confirm modal -->
+<div class="modal-overlay" id="confirmModal">
+    <div class="modal">
+        <h2>⚠️ Confirm Purge</h2>
+        <p style="font-size: 14px; color: var(--text-muted); margin-bottom: 12px;">
+            This will <strong>permanently delete</strong> the selected sessions — both the
+            session folder (events, checkpoints, rewind) and the database entries (conversation, search index).
+        </p>
+        <div id="confirmDetails" style="background: var(--bg); padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px;">
+            Loading...
+        </div>
+        <div class="modal-actions">
+            <button class="btn" onclick="hideConfirmModal()">Cancel</button>
+            <button class="btn" style="background: rgba(248, 81, 73, 0.2); color: var(--accent-red); border-color: rgba(248, 81, 73, 0.4);"
+                    onclick="executePurge()" id="confirmPurgeBtn">
+                Purge Forever
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let selectedIds = [];
+
+function selectAll(checked) {
+    document.querySelectorAll('.cleanup-check').forEach(cb => cb.checked = checked);
+    updateSelectionCount();
+}
+
+function selectByReason(reason) {
+    document.querySelectorAll('.cleanup-row').forEach(row => {
+        const reasons = row.dataset.reasons.split(',');
+        const cb = row.querySelector('.cleanup-check');
+        if (reasons.includes(reason)) cb.checked = true;
+    });
+    updateSelectionCount();
+}
+
+function updateSelectionCount() {
+    const checked = document.querySelectorAll('.cleanup-check:checked');
+    const count = checked.length;
+    const el = document.getElementById('selectionCount');
+    const btn = document.getElementById('purgeBtn');
+
+    if (count === 0) {
+        el.textContent = '';
+        btn.disabled = true;
+    } else {
+        el.textContent = `${count} selected`;
+        btn.disabled = false;
+    }
+}
+
+async function purgeSelected() {
+    selectedIds = Array.from(document.querySelectorAll('.cleanup-check:checked')).map(cb => cb.value);
+    if (selectedIds.length === 0) return;
+
+    // Show confirm modal with preview
+    document.getElementById('confirmModal').classList.add('show');
+    document.getElementById('confirmDetails').innerHTML = 'Calculating...';
+
+    try {
+        const r = await fetch('/api/cleanup/preview', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_ids: selectedIds})
+        });
+        const data = await r.json();
+        document.getElementById('confirmDetails').innerHTML =
+            `<strong>${data.count}</strong> sessions · <strong>${data.total_size_human}</strong> to be freed`;
+    } catch(e) {
+        document.getElementById('confirmDetails').innerHTML = `${selectedIds.length} sessions selected`;
+    }
+}
+
+function hideConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('show');
+}
+
+async function executePurge() {
+    const btn = document.getElementById('confirmPurgeBtn');
+    btn.disabled = true;
+    btn.textContent = 'Purging...';
+
+    try {
+        const r = await fetch('/api/cleanup/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_ids: selectedIds})
+        });
+        const data = await r.json();
+        showToast(data.message);
+        hideConfirmModal();
+        // Fade out purged rows
+        selectedIds.forEach(sid => {
+            const row = document.querySelector(`[data-session-id="${sid}"]`);
+            if (row) row.style.display = 'none';
+        });
+        // Update counts
+        updateSelectionCount();
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Purge Forever';
+}
+
+async function cleanStale() {
+    try {
+        const r = await fetch('/api/cleanup/stale-locks', {method: 'POST'});
+        const data = await r.json();
+        showToast(data.message);
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+}
+
+// Close confirm modal on Escape / overlay click
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') hideConfirmModal();
+});
+document.getElementById('confirmModal').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) hideConfirmModal();
+});
+</script>
+{% endblock %}

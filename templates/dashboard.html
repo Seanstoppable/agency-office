@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Agency Dashboard{% endblock %}
+{% block nav_dashboard %}active{% endblock %}
+
+{% block content %}
+<!-- Stats -->
+<div class="stats-bar">
+    <div class="stat">
+        <span class="stat-value">{{ active_sessions | length }}</span>
+        <span class="stat-label">Active</span>
+    </div>
+    <div class="stat">
+        <span class="stat-value">{{ total_sessions }}</span>
+        <span class="stat-label">Total Sessions</span>
+    </div>
+    <div class="stat">
+        <span class="stat-value">{{ repos | length }}</span>
+        <span class="stat-label">Repositories</span>
+    </div>
+</div>
+
+<!-- Active Sessions -->
+{% if active_sessions %}
+<div style="margin-bottom: 32px;">
+    <div class="section-title">
+        🟢 Active Sessions
+        <span class="count">{{ active_sessions | length }}</span>
+    </div>
+    <div class="session-list" style="display: flex; flex-direction: column; gap: 8px;">
+        {% for s in active_sessions %}
+        <div class="session-card active">
+            <div class="session-main">
+                <div class="session-summary">
+                    <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
+                </div>
+                <div class="session-meta">
+                    <span class="badge badge-active">● Running (PID {{ s.pid }})</span>
+                    {% if s.repository %}
+                    <span class="badge badge-repo">{{ s.repository | short_repo }}</span>
+                    {% endif %}
+                    {% if s.branch %}
+                    <span class="badge badge-branch">⎇ {{ s.branch }}</span>
+                    {% endif %}
+                    <span>{{ s.turn_count }} turns</span>
+                    <span>{{ s.updated_at | time_ago }}</span>
+                </div>
+            </div>
+            <div class="session-actions">
+                <a href="/session/{{ s.id }}" class="btn">View</a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Recent Sessions by Repo -->
+<div class="section-title">
+    📁 Sessions by Repository
+</div>
+
+{% for repo, sessions in repos.items() %}
+<div class="repo-section">
+    <div class="repo-header">
+        {{ repo | short_repo }}
+        <span class="count">{{ sessions | length }}</span>
+        {% if repo != 'No Repository' %}
+        <span style="font-weight: normal; font-size: 11px; color: var(--text-dim);">{{ repo }}</span>
+        {% endif %}
+    </div>
+    <div class="session-list" style="display: flex; flex-direction: column; gap: 6px;">
+        {% for s in sessions[:10] %}
+        <div class="session-card">
+            <div class="session-main">
+                <div class="session-summary">
+                    <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
+                </div>
+                <div class="session-meta">
+                    {% if s.branch %}
+                    <span class="badge badge-branch">⎇ {{ s.branch }}</span>
+                    {% endif %}
+                    <span>{{ s.turn_count }} turns</span>
+                    <span>{{ s.updated_at | time_ago }}</span>
+                </div>
+            </div>
+            <div class="session-actions">
+                <button class="btn btn-primary" onclick="resumeSession('{{ s.id }}')">Resume</button>
+                <a href="/session/{{ s.id }}" class="btn">View</a>
+                <button class="btn" style="color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
+                        onclick="purgeSession('{{ s.id }}', this)"
+                        title="Permanently delete this session">🗑</button>
+            </div>
+        </div>
+        {% endfor %}
+        {% if sessions | length > 10 %}
+        <div style="padding: 8px 16px; font-size: 12px; color: var(--text-dim);">
+            + {{ sessions | length - 10 }} more sessions
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+
+{% if not active_sessions and not repos %}
+<div class="empty-state">
+    <p>No sessions found.</p>
+</div>
+{% endif %}
+
+<script>
+async function purgeSession(sessionId, btn) {
+    if (!confirm('Permanently delete this session?\n\nThis removes the session folder and all database entries. This cannot be undone.')) return;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+        const r = await fetch('/api/cleanup/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_ids: [sessionId]})
+        });
+        const data = await r.json();
+        showToast(data.message);
+        if (data.status === 'ok') {
+            btn.closest('.session-card').style.display = 'none';
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = '🗑';
+}
+</script>
+{% endblock %}

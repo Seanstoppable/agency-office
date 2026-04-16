@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}{{ session.summary or 'Session' }} — Agency{% endblock %}
+
+{% block content %}
+<div class="detail-header">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <a href="/" style="color: var(--text-muted); font-size: 14px;">← Back</a>
+        {% if session.is_active %}
+        <span class="badge badge-active" style="font-size: 12px; padding: 2px 8px;">● Active</span>
+        {% endif %}
+    </div>
+    <h1 class="detail-title" style="margin-top: 8px;">{{ session.summary or 'Untitled Session' }}</h1>
+    <div class="detail-meta">
+        {% if session.repository %}
+        <span class="badge badge-repo">{{ session.repository | short_repo }}</span>
+        {% endif %}
+        {% if session.branch %}
+        <span class="badge badge-branch">⎇ {{ session.branch }}</span>
+        {% endif %}
+        {% if session.cwd %}
+        <span title="{{ session.cwd }}">📁 {{ session.cwd }}</span>
+        {% endif %}
+        <span>Created {{ session.created_at | time_ago }}</span>
+        <span>Updated {{ session.updated_at | time_ago }}</span>
+    </div>
+    <div style="margin-top: 12px; display: flex; gap: 8px;">
+        <button class="btn btn-primary" onclick="resumeSession('{{ session.id }}')">Resume in iTerm2</button>
+    </div>
+
+    <!-- Headless prompt -->
+    <div style="margin-top: 16px; padding: 16px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;">
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Send Headless Prompt</div>
+        <div style="display: flex; gap: 8px;">
+            <input type="text" id="headlessPrompt" class="search-input" style="flex: 1;"
+                   placeholder="Send a follow-up prompt to this session...">
+            <button class="btn btn-primary" onclick="sendHeadless()">Send</button>
+        </div>
+        <div id="headlessResult" style="margin-top: 8px; font-size: 12px; color: var(--text-muted); display: none;"></div>
+    </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+    <div class="tab active" onclick="showTab('conversation', this)">Conversation ({{ turns | length }})</div>
+    <div class="tab" onclick="showTab('checkpoints', this)">Checkpoints ({{ checkpoints | length }})</div>
+    <div class="tab" onclick="showTab('files', this)">Files ({{ files | length }})</div>
+    <div class="tab" onclick="showTab('refs', this)">Refs ({{ refs | length }})</div>
+</div>
+
+<!-- Conversation tab -->
+<div id="tab-conversation" class="tab-content">
+    {% if turns %}
+    <div class="conversation">
+        {% for turn in turns %}
+        {% if turn.user_message %}
+        <div class="turn turn-user">
+            <div class="turn-label">You — Turn {{ turn.turn_index }}</div>
+            {{ turn.user_message | truncate(2000) }}
+        </div>
+        {% endif %}
+        {% if turn.assistant_response %}
+        <div class="turn turn-assistant">
+            <div class="turn-label">Assistant — Turn {{ turn.turn_index }}</div>
+            {{ turn.assistant_response | truncate(2000) }}
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">No conversation recorded.</div>
+    {% endif %}
+</div>
+
+<!-- Checkpoints tab -->
+<div id="tab-checkpoints" class="tab-content" style="display: none;">
+    {% if checkpoints %}
+    {% for cp in checkpoints %}
+    <div class="checkpoint-card">
+        <div class="checkpoint-title">#{{ cp.checkpoint_number }}: {{ cp.title }}</div>
+        <div class="checkpoint-overview">{{ cp.overview or '' }}</div>
+        {% if cp.work_done %}
+        <div style="margin-top: 8px;">
+            <strong style="font-size: 12px; color: var(--accent-green);">Work Done:</strong>
+            <div class="checkpoint-overview">{{ cp.work_done }}</div>
+        </div>
+        {% endif %}
+        {% if cp.next_steps %}
+        <div style="margin-top: 8px;">
+            <strong style="font-size: 12px; color: var(--accent-yellow);">Next Steps:</strong>
+            <div class="checkpoint-overview">{{ cp.next_steps }}</div>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="empty-state">No checkpoints recorded.</div>
+    {% endif %}
+</div>
+
+<!-- Files tab -->
+<div id="tab-files" class="tab-content" style="display: none;">
+    {% if files %}
+    <div class="file-list">
+        {% for f in files %}
+        <div class="file-item">
+            {{ f.file_path }}
+            <span class="file-tool">{{ f.tool_name }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">No files recorded.</div>
+    {% endif %}
+</div>
+
+<!-- Refs tab -->
+<div id="tab-refs" class="tab-content" style="display: none;">
+    {% if refs %}
+    <div class="file-list">
+        {% for r in refs %}
+        <div class="file-item">
+            <span style="color: var(--accent-purple);">{{ r.ref_type }}</span>
+            {{ r.ref_value }}
+            <span class="file-tool">{{ r.created_at | time_ago }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">No refs recorded.</div>
+    {% endif %}
+</div>
+
+<script>
+function showTab(name, el) {
+    document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).style.display = 'block';
+    el.classList.add('active');
+}
+
+async function sendHeadless() {
+    const prompt = document.getElementById('headlessPrompt').value;
+    if (!prompt) return;
+    const resultDiv = document.getElementById('headlessResult');
+    resultDiv.style.display = 'block';
+    resultDiv.textContent = '⏳ Running...';
+
+    try {
+        const r = await fetch('/api/headless', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                prompt: prompt,
+                cwd: '{{ session.cwd }}',
+                session_id: '{{ session.id }}'
+            })
+        });
+        const data = await r.json();
+        if (data.job_id) {
+            pollHeadless(data.job_id, resultDiv);
+        }
+    } catch(e) {
+        resultDiv.textContent = '❌ Error: ' + e.message;
+    }
+}
+
+async function pollHeadless(jobId, div) {
+    const poll = async () => {
+        const r = await fetch(`/api/headless/${jobId}`);
+        const data = await r.json();
+        if (data.status === 'running') {
+            div.textContent = '⏳ Running... (this may take a while)';
+            setTimeout(poll, 3000);
+        } else if (data.status === 'done') {
+            div.innerHTML = '<strong style="color: var(--accent-green);">✓ Done</strong><pre style="margin-top: 8px; max-height: 300px; overflow: auto; padding: 8px; background: var(--bg); border-radius: 4px; font-size: 12px; white-space: pre-wrap;">' + escapeHtml(data.output) + '</pre>';
+        } else {
+            div.innerHTML = '<strong style="color: var(--accent-red);">❌ Error</strong><pre style="margin-top: 8px;">' + escapeHtml(data.output) + '</pre>';
+        }
+    };
+    poll();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+</script>
+{% endblock %}
