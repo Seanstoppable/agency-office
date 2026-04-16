@@ -10,11 +10,11 @@
         <span class="stat-label">Active</span>
     </div>
     <div class="stat">
-        <span class="stat-value">{{ total_sessions }}</span>
+        <span class="stat-value" id="totalSessionCount">{{ total_sessions }}</span>
         <span class="stat-label">Total Sessions</span>
     </div>
     <div class="stat">
-        <span class="stat-value">{{ repos | length }}</span>
+        <span class="stat-value" id="repoCount">{{ repos | length }}</span>
         <span class="stat-label">Repositories</span>
     </div>
 </div>
@@ -60,13 +60,16 @@
 </div>
 
 {% for repo, sessions in repos.items() %}
-<div class="repo-section">
+<div class="repo-section" data-repo="{{ repo }}">
     <div class="repo-header">
         {{ repo | short_repo }}
-        <span class="count">{{ sessions | length }}</span>
+        <span class="count repo-count">{{ sessions | length }}</span>
         {% if repo != 'No Repository' %}
         <span style="font-weight: normal; font-size: 11px; color: var(--text-dim);">{{ repo }}</span>
         {% endif %}
+        <span style="flex: 1;"></span>
+        <button class="btn" style="font-size: 11px; color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
+                onclick="purgeRepo(this)">Clear All</button>
     </div>
     <div class="session-list" style="display: flex; flex-direction: column; gap: 6px;">
         {% for s in sessions[:10] %}
@@ -108,6 +111,24 @@
 {% endif %}
 
 <script>
+function updateCounters() {
+    // Update total session count
+    const visibleCards = document.querySelectorAll('.repo-section .session-card:not([style*="display: none"])');
+    document.getElementById('totalSessionCount').textContent = visibleCards.length;
+
+    // Update per-repo counts and hide empty sections
+    document.querySelectorAll('.repo-section').forEach(section => {
+        const visible = section.querySelectorAll('.session-card:not([style*="display: none"])');
+        const countBadge = section.querySelector('.repo-count');
+        if (countBadge) countBadge.textContent = visible.length;
+        section.style.display = visible.length === 0 ? 'none' : '';
+    });
+
+    // Update repo count
+    const visibleRepos = document.querySelectorAll('.repo-section:not([style*="display: none"])');
+    document.getElementById('repoCount').textContent = visibleRepos.length;
+}
+
 async function purgeSession(sessionId, btn) {
     if (!confirm('Permanently delete this session?\n\nThis removes the session folder and all database entries. This cannot be undone.')) return;
     btn.disabled = true;
@@ -122,12 +143,45 @@ async function purgeSession(sessionId, btn) {
         showToast(data.message);
         if (data.status === 'ok') {
             btn.closest('.session-card').style.display = 'none';
+            updateCounters();
         }
     } catch(e) {
         showToast('Error: ' + e.message);
     }
     btn.disabled = false;
     btn.textContent = '🗑';
+}
+
+async function purgeRepo(btn) {
+    const section = btn.closest('.repo-section');
+    const cards = section.querySelectorAll('.session-card:not([style*="display: none"])');
+    const ids = Array.from(cards).map(c => {
+        const link = c.querySelector('a[href^="/session/"]');
+        return link ? link.getAttribute('href').replace('/session/', '') : null;
+    }).filter(Boolean);
+
+    if (ids.length === 0) return;
+    if (!confirm(`Permanently delete all ${ids.length} sessions in this repository?\n\nThis cannot be undone.`)) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Clearing…';
+    try {
+        const r = await fetch('/api/cleanup/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_ids: ids})
+        });
+        const data = await r.json();
+        showToast(data.message);
+        if (data.status === 'ok') {
+            cards.forEach(c => c.style.display = 'none');
+            updateCounters();
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = 'Clear All';
 }
 </script>
 {% endblock %}
