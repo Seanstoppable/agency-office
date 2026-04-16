@@ -72,8 +72,8 @@
                 onclick="purgeRepo(this)">Clear All</button>
     </div>
     <div class="session-list" style="display: flex; flex-direction: column; gap: 6px;">
-        {% for s in sessions[:10] %}
-        <div class="session-card">
+        {% for s in sessions %}
+        <div class="session-card" {% if loop.index > 10 %}style="display: none;" data-overflow="true"{% endif %}>
             <div class="session-main">
                 <div class="session-summary">
                     <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
@@ -96,9 +96,10 @@
         </div>
         {% endfor %}
         {% if sessions | length > 10 %}
-        <div style="padding: 8px 16px; font-size: 12px; color: var(--text-dim);">
-            + {{ sessions | length - 10 }} more sessions
-        </div>
+        <button class="btn" style="width: 100%; text-align: center; padding: 8px; font-size: 12px;"
+                onclick="toggleOverflow(this)">
+            Show {{ sessions | length - 10 }} more sessions
+        </button>
         {% endif %}
     </div>
 </div>
@@ -112,21 +113,32 @@
 
 <script>
 function updateCounters() {
-    // Update total session count
-    const visibleCards = document.querySelectorAll('.repo-section .session-card:not([style*="display: none"])');
-    document.getElementById('totalSessionCount').textContent = visibleCards.length;
+    // Count non-purged cards (includes collapsed overflow)
+    const allCards = document.querySelectorAll('.repo-section .session-card:not([data-purged])');
+    document.getElementById('totalSessionCount').textContent = allCards.length;
 
     // Update per-repo counts and hide empty sections
     document.querySelectorAll('.repo-section').forEach(section => {
-        const visible = section.querySelectorAll('.session-card:not([style*="display: none"])');
+        const remaining = section.querySelectorAll('.session-card:not([data-purged])');
         const countBadge = section.querySelector('.repo-count');
-        if (countBadge) countBadge.textContent = visible.length;
-        section.style.display = visible.length === 0 ? 'none' : '';
+        if (countBadge) countBadge.textContent = remaining.length;
+        section.style.display = remaining.length === 0 ? 'none' : '';
     });
 
     // Update repo count
     const visibleRepos = document.querySelectorAll('.repo-section:not([style*="display: none"])');
     document.getElementById('repoCount').textContent = visibleRepos.length;
+}
+
+function toggleOverflow(btn) {
+    const section = btn.closest('.repo-section');
+    const hidden = section.querySelectorAll('[data-overflow="true"]');
+    const isShowing = btn.dataset.expanded === 'true';
+
+    hidden.forEach(card => card.style.display = isShowing ? 'none' : '');
+    btn.dataset.expanded = isShowing ? 'false' : 'true';
+    btn.textContent = isShowing ? `Show ${hidden.length} more sessions` : 'Show less';
+    updateCounters();
 }
 
 async function purgeSession(sessionId, btn) {
@@ -142,7 +154,9 @@ async function purgeSession(sessionId, btn) {
         const data = await r.json();
         showToast(data.message);
         if (data.status === 'ok') {
-            btn.closest('.session-card').style.display = 'none';
+            const card = btn.closest('.session-card');
+            card.setAttribute('data-purged', 'true');
+            card.style.display = 'none';
             updateCounters();
         }
     } catch(e) {
@@ -154,7 +168,7 @@ async function purgeSession(sessionId, btn) {
 
 async function purgeRepo(btn) {
     const section = btn.closest('.repo-section');
-    const cards = section.querySelectorAll('.session-card:not([style*="display: none"])');
+    const cards = section.querySelectorAll('.session-card:not([data-purged])');
     const ids = Array.from(cards).map(c => {
         const link = c.querySelector('a[href^="/session/"]');
         return link ? link.getAttribute('href').replace('/session/', '') : null;
@@ -174,7 +188,7 @@ async function purgeRepo(btn) {
         const data = await r.json();
         showToast(data.message);
         if (data.status === 'ok') {
-            cards.forEach(c => c.style.display = 'none');
+            cards.forEach(c => { c.setAttribute('data-purged', 'true'); c.style.display = 'none'; });
             updateCounters();
         }
     } catch(e) {
