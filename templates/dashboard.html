@@ -73,12 +73,15 @@
     </div>
     <div class="session-list" style="display: flex; flex-direction: column; gap: 6px;">
         {% for s in sessions %}
-        <div class="session-card" {% if loop.index > 10 %}style="display: none;" data-overflow="true"{% endif %}>
+        <div class="session-card {{ 'active' if s.is_active else '' }}" {% if loop.index > 10 %}style="display: none;" data-overflow="true"{% endif %}>
             <div class="session-main">
                 <div class="session-summary">
                     <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
                 </div>
                 <div class="session-meta">
+                    {% if s.is_active %}
+                    <span class="badge badge-active">● Running (PID {{ s.pid }})</span>
+                    {% endif %}
                     {% if s.branch %}
                     <span class="badge badge-branch">⎇ {{ s.branch }}</span>
                     {% endif %}
@@ -87,11 +90,15 @@
                 </div>
             </div>
             <div class="session-actions">
+                {% if not s.is_active %}
                 <button class="btn btn-primary" onclick="resumeSession('{{ s.id }}')">Resume</button>
+                {% endif %}
                 <a href="/session/{{ s.id }}" class="btn">View</a>
+                {% if not s.is_active %}
                 <button class="btn" style="color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
                         onclick="purgeSession('{{ s.id }}', this)"
                         title="Permanently delete this session">🗑</button>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
@@ -168,14 +175,17 @@ async function purgeSession(sessionId, btn) {
 
 async function purgeRepo(btn) {
     const section = btn.closest('.repo-section');
-    const cards = section.querySelectorAll('.session-card:not([data-purged])');
+    const cards = section.querySelectorAll('.session-card:not([data-purged]):not(.active)');
     const ids = Array.from(cards).map(c => {
         const link = c.querySelector('a[href^="/session/"]');
         return link ? link.getAttribute('href').replace('/session/', '') : null;
     }).filter(Boolean);
 
-    if (ids.length === 0) return;
-    if (!confirm(`Permanently delete all ${ids.length} sessions in this repository?\n\nThis cannot be undone.`)) return;
+    const activeCount = section.querySelectorAll('.session-card.active').length;
+    const activeNote = activeCount > 0 ? `\n\n${activeCount} active session(s) will be kept.` : '';
+
+    if (ids.length === 0) { showToast('No inactive sessions to clear.'); return; }
+    if (!confirm(`Permanently delete ${ids.length} inactive sessions in this repository?${activeNote}\n\nThis cannot be undone.`)) return;
 
     btn.disabled = true;
     btn.textContent = 'Clearing…';

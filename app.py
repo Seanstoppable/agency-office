@@ -181,13 +181,9 @@ async def dashboard(request: Request):
             row["branch"] = row.get("branch") or ws.get("branch", "")
         enriched.append(row)
 
-    # Split active vs recent
-    active = [s for s in enriched if s["is_active"]]
-    recent = [s for s in enriched if not s["is_active"]]
-
-    # Group recent by repo
+    # Group ALL sessions by repo (active sessions appear in their repo blocks)
     repos: dict[str, list] = {}
-    for s in recent:
+    for s in enriched:
         repo = s.get("repository") or "No Repository"
         repos.setdefault(repo, []).append(s)
 
@@ -195,6 +191,8 @@ async def dashboard(request: Request):
     sorted_repos = dict(
         sorted(repos.items(), key=lambda kv: (0 if kv[0] == "No Repository" else 1, kv[0].lower()))
     )
+
+    active = [s for s in enriched if s["is_active"]]
 
     return templates.TemplateResponse(
         request, "dashboard.html",
