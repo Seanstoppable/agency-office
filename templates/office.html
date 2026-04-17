@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block title %}The Office — Agency{% endblock %}
+{% block nav_office %}active{% endblock %}
+
+{% block content %}
+<style>
+    .office-header {
+        text-align: center;
+        padding: 24px 0 16px;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 24px;
+    }
+    .office-header h1 {
+        font-size: 28px;
+        font-weight: 700;
+        margin-bottom: 4px;
+    }
+    .office-header .subtitle {
+        color: var(--text-muted);
+        font-size: 14px;
+    }
+    .office-header .clock {
+        font-family: 'SF Mono', Menlo, monospace;
+        color: var(--accent-green);
+        font-size: 13px;
+        margin-top: 6px;
+    }
+
+    .reception {
+        background: var(--bg-secondary);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 16px 24px;
+        margin-bottom: 24px;
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        font-size: 14px;
+    }
+    .reception .desk {
+        font-size: 18px;
+    }
+    .reception .badge {
+        display: inline-block;
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 13px;
+        font-weight: 600;
+    }
+    .reception .badge.active { border-color: var(--accent-green); color: var(--accent-green); }
+    .reception .badge.idle { border-color: var(--text-dim); color: var(--text-muted); }
+
+    .floor-plan {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+
+    .room {
+        background: var(--bg-secondary);
+        border: 2px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        transition: border-color 0.2s;
+    }
+    .room:hover { border-color: var(--accent); }
+    .room.has-active { border-color: var(--accent-green); }
+
+    .room-door {
+        background: var(--bg-tertiary);
+        border-bottom: 1px solid var(--border);
+        padding: 10px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .room-door .nameplate {
+        font-weight: 600;
+        font-size: 15px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .room-door .nameplate .room-icon { font-size: 18px; }
+    .room-door .headcount {
+        font-size: 12px;
+        color: var(--text-muted);
+        font-family: 'SF Mono', Menlo, monospace;
+    }
+    .room-door .headcount .green { color: var(--accent-green); }
+
+    .room-floor {
+        padding: 12px;
+        min-height: 80px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-content: flex-start;
+    }
+
+    .desk {
+        position: relative;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 8px 12px;
+        width: calc(50% - 4px);
+        cursor: pointer;
+        transition: all 0.2s;
+        overflow: hidden;
+    }
+    .desk:hover {
+        border-color: var(--accent);
+        background: var(--bg-tertiary);
+        transform: translateY(-1px);
+    }
+    .desk.active {
+        border-color: var(--accent-green);
+        box-shadow: 0 0 12px rgba(63, 185, 80, 0.1);
+    }
+    .desk.active .worker-emoji {
+        animation: typing 0.6s ease-in-out infinite alternate;
+    }
+    .desk.empty {
+        opacity: 0.4;
+        border-style: dashed;
+    }
+
+    .worker-emoji {
+        font-size: 22px;
+        line-height: 1;
+    }
+    .worker-name {
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .worker-activity {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 1px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-style: italic;
+    }
+    .worker-branch {
+        font-size: 10px;
+        color: var(--accent-purple);
+        font-family: 'SF Mono', Menlo, monospace;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .worker-turns {
+        position: absolute;
+        top: 6px;
+        right: 8px;
+        font-size: 10px;
+        font-family: 'SF Mono', Menlo, monospace;
+        color: var(--text-dim);
+    }
+
+    .active-indicator {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent-green);
+        animation: pulse 1.5s ease-in-out infinite;
+        margin-right: 4px;
+        vertical-align: middle;
+    }
+
+    @keyframes typing {
+        0%   { transform: translateY(0); }
+        100% { transform: translateY(-3px); }
+    }
+
+    @keyframes pulse {
+        0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63, 185, 80, 0.4); }
+        50%      { opacity: 0.7; box-shadow: 0 0 0 4px rgba(63, 185, 80, 0); }
+    }
+
+    @keyframes wander {
+        0%, 100% { transform: translateX(0); }
+        25%      { transform: translateX(3px); }
+        75%      { transform: translateX(-3px); }
+    }
+
+    .desk.idle .worker-emoji {
+        animation: wander 4s ease-in-out infinite;
+    }
+
+    .hallway {
+        text-align: center;
+        padding: 12px;
+        color: var(--text-dim);
+        font-size: 12px;
+        font-family: 'SF Mono', Menlo, monospace;
+        letter-spacing: 4px;
+    }
+
+    /* Tooltip on hover */
+    .desk .tooltip {
+        display: none;
+        position: absolute;
+        bottom: calc(100% + 8px);
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        white-space: nowrap;
+        z-index: 10;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        color: var(--text);
+        text-align: left;
+    }
+    .desk:hover .tooltip { display: block; }
+    .tooltip .tt-label { color: var(--text-dim); }
+
+    .water-cooler {
+        background: var(--bg-secondary);
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        padding: 12px 16px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--text-muted);
+        margin-top: 8px;
+    }
+</style>
+
+<div class="office-header">
+    <h1>🏢 The Agency Office</h1>
+    <div class="subtitle">Where code gets written (or at least attempted)</div>
+    <div class="clock" id="officeClock"></div>
+</div>
+
+<!-- Reception Desk -->
+<div class="reception">
+    <div class="desk">🛎️ Reception</div>
+    <div>
+        <span class="badge active">{{ total_active }} clocked in</span>
+        <span class="badge idle">{{ total_workers - total_active }} on break</span>
+    </div>
+    <div style="margin-left: auto; color: var(--text-dim); font-size: 12px;">
+        {{ rooms|length }} room{{ 's' if rooms|length != 1 else '' }} occupied
+    </div>
+</div>
+
+<div class="hallway">═══════════════════ HALLWAY ═══════════════════</div>
+
+<!-- Floor Plan -->
+<div class="floor-plan">
+{% for room in rooms %}
+<div class="room {{ 'has-active' if room.active_count > 0 else '' }}">
+    <div class="room-door">
+        <div class="nameplate">
+            <span class="room-icon">{{ room.icon }}</span>
+            {{ room.short_name }}
+        </div>
+        <div class="headcount">
+            {% if room.active_count > 0 %}
+                <span class="green">●</span> {{ room.active_count }} active /
+            {% endif %}
+            {{ room.total_count }} total
+        </div>
+    </div>
+    <div class="room-floor">
+        {% for w in room.workers %}
+        <a href="/session/{{ w.id }}" class="desk {{ 'active' if w.is_active else ('empty' if w.turn_count == 0 else 'idle') }}" style="text-decoration: none; color: inherit;">
+            <div class="tooltip">
+                <div><span class="tt-label">Session:</span> {{ w.id[:12] }}…</div>
+                {% if w.branch %}<div><span class="tt-label">Branch:</span> {{ w.branch }}</div>{% endif %}
+                {% if w.summary %}<div><span class="tt-label">Task:</span> {{ w.summary|truncate(60) }}</div>{% endif %}
+                <div><span class="tt-label">Turns:</span> {{ w.turn_count }}</div>
+                <div><span class="tt-label">Last seen:</span> {{ w.updated_at|time_ago }}</div>
+            </div>
+            <div class="worker-turns">
+                {% if w.is_active %}<span class="active-indicator"></span>{% endif %}
+                {{ w.turn_count }}↺
+            </div>
+            <div class="worker-emoji">{{ w.emoji }}</div>
+            <div class="worker-name">{{ w.name }}</div>
+            <div class="worker-activity">{{ w.activity }}</div>
+            {% if w.branch %}
+            <div class="worker-branch">⎇ {{ w.branch|truncate(24) }}</div>
+            {% endif %}
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+</div>
+
+<div class="hallway">═══════════════════════════════════════════════</div>
+
+<div class="water-cooler">
+    🚰 <em>Water Cooler Chat</em> — {{ total_workers }} workers across {{ rooms|length }} rooms.
+    {% if total_active > 0 %}
+        {{ total_active }} currently shipping code. The rest are "thinking about architecture."
+    {% else %}
+        Nobody's here. Everyone went home. The office plants are dying. 🪴
+    {% endif %}
+</div>
+
+<script>
+function updateClock() {
+    const now = new Date();
+    const h = now.getHours();
+    let mood = '☀️';
+    if (h < 6) mood = '🌙 (why are you here?)';
+    else if (h < 9) mood = '🌅 (early bird!)';
+    else if (h < 12) mood = '☀️ (prime coding hours)';
+    else if (h < 14) mood = '🍕 (lunch vibes)';
+    else if (h < 17) mood = '☀️ (afternoon push)';
+    else if (h < 20) mood = '🌆 (overtime? really?)';
+    else mood = '🌙 (go home)';
+
+    const time = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    document.getElementById('officeClock').textContent = `${time} ${mood}`;
+}
+updateClock();
+setInterval(updateClock, 1000);
+</script>
+{% endblock %}

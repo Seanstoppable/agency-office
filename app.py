@@ -806,6 +806,124 @@ async def api_cleanup_stale_locks():
     return {"status": "ok", "removed": removed, "message": f"Removed {removed} stale lock files"}
 
 
+# --- Office View ---
+
+@app.get("/office", response_class=HTMLResponse)
+async def office_view(request: Request):
+    """Whimsical office floor plan — repos are rooms, sessions are workers."""
+    import random
+    import hashlib
+
+    active_pids = get_active_sessions()
+
+    with get_db() as db:
+        sessions = db.execute("""
+            SELECT s.id, s.cwd, s.repository, s.branch, s.summary,
+                   s.created_at, s.updated_at,
+                   COUNT(DISTINCT t.turn_index) as turn_count
+            FROM sessions s
+            LEFT JOIN turns t ON t.session_id = s.id
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            LIMIT 200
+        """).fetchall()
+
+    enriched = []
+    for s in sessions:
+        row = dict(s)
+        row["is_active"] = s["id"] in active_pids
+        row["pid"] = active_pids.get(s["id"])
+        if not row.get("cwd") or not row.get("repository"):
+            ws = get_workspace_yaml(s["id"])
+            row["cwd"] = row.get("cwd") or ws.get("cwd", "")
+            row["repository"] = row.get("repository") or ws.get("repository", "")
+            row["branch"] = row.get("branch") or ws.get("branch", "")
+        enriched.append(row)
+
+    # Assign each worker a persistent persona based on session ID
+    worker_emojis = [
+        "🧑‍💻", "👩‍💻", "👨‍💻", "🧑‍🔬", "👩‍🔬", "🧙", "🧙‍♀️", "🥷",
+        "🦊", "🐙", "🤖", "🦉", "🐸", "🦝", "🐱", "🐶",
+        "👻", "🎃", "🧛", "🧟", "🦸", "🦹", "🧑‍🚀", "🕵️",
+    ]
+    worker_names = [
+        "Ada", "Bjarne", "Claude", "Dijkstra", "Erlang", "Fiona", "Guido", "Haskell",
+        "Ivan", "Julia", "Knuth", "Linus", "Matz", "Nico", "Opal", "Pike",
+        "Quinn", "Rust", "Stroustrup", "Turing", "Uma", "Vala", "Wirth", "Xena",
+    ]
+    activities_active = [
+        "furiously typing", "refactoring the thing", "in a flow state 🔥",
+        "pair-programming with the void", "shipping it™", "debugging with printfs",
+        "in the zone", "writing tests (really!)", "rebasing onto main",
+        "arguing with the linter", "deploying to prod at 5pm", "reading stack traces",
+    ]
+    activities_idle = [
+        "napping at desk 💤", "getting coffee ☕", "staring at screen",
+        "in a meeting (sorry)", "on a snack break 🍕", "reading HN",
+        "reorganizing desktop icons", "pretending to work", "daydreaming about Rust",
+        "watching CI spin", "waiting for code review", "stretching",
+    ]
+    activities_empty = [
+        "vanished mysteriously 👻", "left for lunch (3 weeks ago)",
+        "abducted by aliens 👽", "gone fishing 🎣", "on permanent vacation",
+    ]
+
+    def worker_persona(session_id):
+        h = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
+        return {
+            "emoji": worker_emojis[h % len(worker_emojis)],
+            "name": worker_names[h % len(worker_names)],
+        }
+
+    def worker_activity(s):
+        rng = random.Random(s["id"])
+        if s["is_active"]:
+            return rng.choice(activities_active)
+        elif s["turn_count"] == 0:
+            return rng.choice(activities_empty)
+        else:
+            return rng.choice(activities_idle)
+
+    # Group by repo
+    rooms: dict[str, list] = {}
+    for s in enriched:
+        repo = s.get("repository") or "The Lobby"
+        rooms.setdefault(repo, []).append(s)
+
+    # Build room data
+    room_data = []
+    room_icons = ["🏢", "🏗️", "🏠", "🏭", "🏰", "⛺", "🏛️", "🎪", "🗼", "🏚️"]
+    for i, (repo, sess_list) in enumerate(rooms.items()):
+        active_count = sum(1 for s in sess_list if s["is_active"])
+        workers = []
+        for s in sess_list:
+            p = worker_persona(s["id"])
+            workers.append({
+                **s,
+                **p,
+                "activity": worker_activity(s),
+            })
+        room_data.append({
+            "name": repo,
+            "short_name": repo.split("/")[-1] if "/" in repo else repo,
+            "icon": room_icons[i % len(room_icons)],
+            "workers": workers,
+            "active_count": active_count,
+            "total_count": len(sess_list),
+        })
+
+    total_active = sum(1 for s in enriched if s["is_active"])
+
+    return templates.TemplateResponse(
+        request, "office.html",
+        context={
+            "rooms": room_data,
+            "total_workers": len(enriched),
+            "total_active": total_active,
+        },
+    )
+
+
 # --- Main ---
 
 if __name__ == "__main__":
