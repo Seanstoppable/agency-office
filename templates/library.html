@@ -149,7 +149,8 @@
     }
 
     .book .book-tip {
-        display: none;
+        visibility: hidden;
+        opacity: 0;
         position: fixed;
         background: var(--bg-tertiary);
         border: 1px solid var(--border);
@@ -163,8 +164,9 @@
         text-align: left;
         line-height: 1.6;
         pointer-events: none;
+        transition: opacity 0.15s;
     }
-    .book-tip.visible { display: block; }
+    .book-tip.visible { visibility: visible; opacity: 1; }
     .book-tip .tip-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
     .book-tip .tip-label { color: var(--text-dim); }
     .book-tip .tip-genre { color: var(--accent-yellow); }
