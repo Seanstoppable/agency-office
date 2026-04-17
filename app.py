@@ -811,7 +811,6 @@ async def api_cleanup_stale_locks():
 @app.get("/office", response_class=HTMLResponse)
 async def office_view(request: Request):
     """Whimsical office floor plan — repos are rooms, sessions are workers."""
-    import random
     import hashlib
 
     active_pids = get_active_sessions()
@@ -851,23 +850,6 @@ async def office_view(request: Request):
         "Ivan", "Julia", "Knuth", "Linus", "Matz", "Nico", "Opal", "Pike",
         "Quinn", "Rust", "Stroustrup", "Turing", "Uma", "Vala", "Wirth", "Xena",
     ]
-    activities_active = [
-        "furiously typing", "refactoring the thing", "in a flow state 🔥",
-        "pair-programming with the void", "shipping it™", "debugging with printfs",
-        "in the zone", "writing tests (really!)", "rebasing onto main",
-        "arguing with the linter", "deploying to prod at 5pm", "reading stack traces",
-    ]
-    activities_idle = [
-        "napping at desk 💤", "getting coffee ☕", "staring at screen",
-        "in a meeting (sorry)", "on a snack break 🍕", "reading HN",
-        "reorganizing desktop icons", "pretending to work", "daydreaming about Rust",
-        "watching CI spin", "waiting for code review", "stretching",
-    ]
-    activities_empty = [
-        "vanished mysteriously 👻", "left for lunch (3 weeks ago)",
-        "abducted by aliens 👽", "gone fishing 🎣", "on permanent vacation",
-    ]
-
     def worker_persona(session_id):
         h = int(hashlib.md5(session_id.encode()).hexdigest(), 16)
         return {
@@ -876,13 +858,57 @@ async def office_view(request: Request):
         }
 
     def worker_activity(s):
-        rng = random.Random(s["id"])
+        """Build a real description from session data, with a whimsical wrapper."""
+        from datetime import datetime, timezone
+
+        # Use summary if available — it's the best signal
+        if s.get("summary"):
+            summary = s["summary"]
+            # Truncate long summaries
+            if len(summary) > 60:
+                summary = summary[:57] + "…"
+            if s["is_active"]:
+                return f"🔥 {summary}"
+            return summary
+
+        # No summary — describe from what we know
+        branch = s.get("branch", "")
+        turns = s["turn_count"]
+        updated = s.get("updated_at", "")
+
+        # Compute age
+        age_str = ""
+        if updated:
+            try:
+                dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                delta = datetime.now(timezone.utc) - dt
+                if delta.days > 30:
+                    age_str = f"{delta.days}d ago"
+                elif delta.days > 0:
+                    age_str = f"{delta.days}d ago"
+                elif delta.seconds > 3600:
+                    age_str = f"{delta.seconds // 3600}h ago"
+                else:
+                    age_str = "just now"
+            except Exception:
+                pass
+
+        if turns == 0:
+            return f"never started — empty desk 👻"
+
         if s["is_active"]:
-            return rng.choice(activities_active)
-        elif s["turn_count"] == 0:
-            return rng.choice(activities_empty)
-        else:
-            return rng.choice(activities_idle)
+            if branch:
+                return f"working on {branch}"
+            return f"active — {turns} turns deep"
+
+        # Idle with some context
+        parts = []
+        if branch:
+            parts.append(f"⎇ {branch}")
+        parts.append(f"{turns} turns")
+        if age_str:
+            parts.append(age_str)
+        return " · ".join(parts)
 
     # Group by repo
     rooms: dict[str, list] = {}
