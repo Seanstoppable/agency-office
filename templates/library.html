@@ -273,19 +273,25 @@ document.querySelectorAll('.book').forEach(book => {
     const tip = book.querySelector('.book-tip');
     if (!tip) return;
 
+    // Move tooltip to body so no ancestor transform breaks fixed positioning
+    document.body.appendChild(tip);
+
     book.addEventListener('mouseenter', () => {
-        tip.classList.add('visible');
         const rect = book.getBoundingClientRect();
-        const tipRect = tip.getBoundingClientRect();
+
+        // Show to measure
+        tip.classList.add('visible');
+        const tipW = tip.offsetWidth;
+        const tipH = tip.offsetHeight;
 
         // Position above the book
-        let top = rect.top - tipRect.height - 8;
-        let left = rect.left + rect.width / 2 - tipRect.width / 2;
+        let top = rect.top - tipH - 8;
+        let left = rect.left + rect.width / 2 - tipW / 2;
 
         // Clamp to viewport
         if (left < 8) left = 8;
-        if (left + tipRect.width > window.innerWidth - 8) left = window.innerWidth - tipRect.width - 8;
-        if (top < 8) top = rect.bottom + 8; // flip below if no room above
+        if (left + tipW > window.innerWidth - 8) left = window.innerWidth - tipW - 8;
+        if (top < 8) top = rect.bottom + 8;
 
         tip.style.top = top + 'px';
         tip.style.left = left + 'px';
