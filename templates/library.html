@@ -28,8 +28,7 @@
     .catalog-stat .val { font-size: 20px; font-weight: 700; color: var(--text); }
     .catalog-stat .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
 
-    .shelf-section { margin-bottom: 28px; position: relative; z-index: 1; }
-    .shelf-section:hover { z-index: 10; }
+    .shelf-section { margin-bottom: 28px; }
 
     .shelf-label {
         display: flex;
@@ -51,9 +50,6 @@
 
     .bookshelf-wrap {
         overflow-x: auto;
-        overflow-y: visible;
-        padding-top: 120px;
-        margin-top: -120px;
     }
 
     .bookshelf {
@@ -154,23 +150,21 @@
 
     .book .book-tip {
         display: none;
-        position: absolute;
-        bottom: calc(100% + 12px);
-        left: 50%;
-        transform: translateX(-50%);
+        position: fixed;
         background: var(--bg-tertiary);
         border: 1px solid var(--border);
         border-radius: 6px;
         padding: 10px 14px;
         font-size: 12px;
         white-space: nowrap;
-        z-index: 100;
+        z-index: 1000;
         box-shadow: 0 4px 16px rgba(0,0,0,0.4);
         color: var(--text);
         text-align: left;
         line-height: 1.6;
+        pointer-events: none;
     }
-    .book:hover .book-tip { display: block; }
+    .book-tip.visible { display: block; }
     .book-tip .tip-title { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
     .book-tip .tip-label { color: var(--text-dim); }
     .book-tip .tip-genre { color: var(--accent-yellow); }
@@ -271,4 +265,33 @@
     <span>📘 General</span>
     <span>📄 Blank Pages</span>
 </div>
+
+<script>
+document.querySelectorAll('.book').forEach(book => {
+    const tip = book.querySelector('.book-tip');
+    if (!tip) return;
+
+    book.addEventListener('mouseenter', () => {
+        tip.classList.add('visible');
+        const rect = book.getBoundingClientRect();
+        const tipRect = tip.getBoundingClientRect();
+
+        // Position above the book
+        let top = rect.top - tipRect.height - 8;
+        let left = rect.left + rect.width / 2 - tipRect.width / 2;
+
+        // Clamp to viewport
+        if (left < 8) left = 8;
+        if (left + tipRect.width > window.innerWidth - 8) left = window.innerWidth - tipRect.width - 8;
+        if (top < 8) top = rect.bottom + 8; // flip below if no room above
+
+        tip.style.top = top + 'px';
+        tip.style.left = left + 'px';
+    });
+
+    book.addEventListener('mouseleave', () => {
+        tip.classList.remove('visible');
+    });
+});
+</script>
 {% endblock %}
