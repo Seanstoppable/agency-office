@@ -53,10 +53,15 @@
     .reception .badge.idle { border-color: var(--text-dim); color: var(--text-muted); }
 
     .floor-plan {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-        gap: 16px;
+        column-count: 3;
+        column-gap: 16px;
         margin-bottom: 32px;
+    }
+    @media (max-width: 1100px) { .floor-plan { column-count: 2; } }
+    @media (max-width: 700px)  { .floor-plan { column-count: 1; } }
+
+    .big-rooms {
+        margin-bottom: 16px;
     }
 
     .room {
@@ -65,6 +70,12 @@
         border-radius: 10px;
         overflow: hidden;
         transition: border-color 0.2s;
+        break-inside: avoid;
+        margin-bottom: 16px;
+    }
+
+    .big-rooms .room {
+        margin-bottom: 16px;
     }
     .room:hover { border-color: var(--accent); }
     .room.has-active { border-color: var(--accent-green); }
@@ -94,7 +105,6 @@
 
     .room-floor {
         padding: 12px;
-        min-height: 80px;
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
@@ -107,10 +117,14 @@
         border: 1px solid var(--border);
         border-radius: 8px;
         padding: 8px 12px;
-        width: calc(50% - 4px);
+        width: 100%;
         cursor: pointer;
         transition: all 0.2s;
         overflow: hidden;
+    }
+    /* Two-column desks only in rooms with many workers */
+    .room-floor.wide-office .desk {
+        width: calc(50% - 4px);
     }
     .desk:hover {
         border-color: var(--accent);
@@ -262,9 +276,7 @@
 
 <div class="hallway">═══════════════════ HALLWAY ═══════════════════</div>
 
-<!-- Floor Plan -->
-<div class="floor-plan">
-{% for room in rooms %}
+{% macro render_room(room) %}
 <div class="room {{ 'has-active' if room.active_count > 0 else '' }}">
     <div class="room-door">
         <div class="nameplate">
@@ -278,7 +290,7 @@
             {{ room.total_count }} total
         </div>
     </div>
-    <div class="room-floor">
+    <div class="room-floor {{ 'wide-office' if room.total_count > 6 else '' }}">
         {% for w in room.workers %}
         <a href="/session/{{ w.id }}" class="desk {{ 'active' if w.is_active else ('empty' if w.turn_count == 0 else 'idle') }}" style="text-decoration: none; color: inherit;">
             <div class="tooltip">
@@ -302,8 +314,27 @@
         {% endfor %}
     </div>
 </div>
-{% endfor %}
+{% endmacro %}
+
+<!-- Big rooms (>10 workers) get full width above the column layout -->
+{% set big_rooms = rooms|selectattr("total_count", "gt", 10)|list %}
+{% if big_rooms %}
+<div class="big-rooms">
+    {% for room in big_rooms %}
+    {{ render_room(room) }}
+    {% endfor %}
 </div>
+{% endif %}
+
+<!-- Smaller rooms in masonry columns -->
+{% set small_rooms = rooms|rejectattr("total_count", "gt", 10)|list %}
+{% if small_rooms %}
+<div class="floor-plan">
+    {% for room in small_rooms %}
+    {{ render_room(room) }}
+    {% endfor %}
+</div>
+{% endif %}
 
 <div class="hallway">═══════════════════════════════════════════════</div>
 
