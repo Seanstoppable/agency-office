@@ -191,11 +191,16 @@ async def dashboard(request: Request):
         repo = s.get("repository") or "No Repository"
         repos.setdefault(repo, []).append(s)
 
+    # Sort: "No Repository" first, then alphabetically by repo name
+    sorted_repos = dict(
+        sorted(repos.items(), key=lambda kv: (0 if kv[0] == "No Repository" else 1, kv[0].lower()))
+    )
+
     return templates.TemplateResponse(
         request, "dashboard.html",
         context={
             "active_sessions": active,
-            "repos": repos,
+            "repos": sorted_repos,
             "total_sessions": len(enriched),
         },
     )
