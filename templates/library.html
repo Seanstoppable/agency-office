@@ -28,7 +28,8 @@
     .catalog-stat .val { font-size: 20px; font-weight: 700; color: var(--text); }
     .catalog-stat .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
 
-    .shelf-section { margin-bottom: 28px; }
+    .shelf-section { margin-bottom: 28px; position: relative; z-index: 1; }
+    .shelf-section:hover { z-index: 10; }
 
     .shelf-label {
         display: flex;
@@ -48,6 +49,13 @@
         font-family: 'SF Mono', Menlo, monospace;
     }
 
+    .bookshelf-wrap {
+        overflow-x: auto;
+        overflow-y: visible;
+        padding-top: 120px;
+        margin-top: -120px;
+    }
+
     .bookshelf {
         background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
         border: 1px solid var(--border);
@@ -56,7 +64,7 @@
         display: flex;
         align-items: flex-end;
         gap: 3px;
-        overflow-x: auto;
+        overflow: visible;
         min-height: 120px;
         position: relative;
     }
@@ -223,6 +231,7 @@
             {%- if shelf.active_count > 0 %} · {{ shelf.active_count }} open{% endif %}
         </span>
     </div>
+    <div class="bookshelf-wrap">
     <div class="bookshelf">
         {% for book in shelf.books %}
         <a href="/session/{{ book.id }}" class="book {{ 'is-open' if book.is_active else '' }} {{ 'is-blank' if book.turn_count == 0 else '' }}"
@@ -246,6 +255,7 @@
         {% if not shelf.books %}
         <div class="empty-shelf">This shelf is empty. The bookends are lonely. 🥀</div>
         {% endif %}
+    </div>
     </div>
 </div>
 {% endfor %}
