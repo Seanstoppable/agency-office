@@ -957,6 +957,153 @@ async def office_view(request: Request):
     )
 
 
+# --- Library View ---
+
+@app.get("/library", response_class=HTMLResponse)
+async def library_view(request: Request):
+    """Whimsical library — repos are shelves, sessions are books."""
+    import hashlib
+
+    active_pids = get_active_sessions()
+
+    with get_db() as db:
+        sessions = db.execute("""
+            SELECT s.id, s.cwd, s.repository, s.branch, s.summary,
+                   s.created_at, s.updated_at,
+                   COUNT(DISTINCT t.turn_index) as turn_count
+            FROM sessions s
+            LEFT JOIN turns t ON t.session_id = s.id
+            GROUP BY s.id
+            ORDER BY s.updated_at DESC
+            LIMIT 200
+        """).fetchall()
+
+    enriched = []
+    for s in sessions:
+        row = dict(s)
+        row["is_active"] = s["id"] in active_pids
+        if not row.get("cwd") or not row.get("repository"):
+            ws = get_workspace_yaml(s["id"])
+            row["cwd"] = row.get("cwd") or ws.get("cwd", "")
+            row["repository"] = row.get("repository") or ws.get("repository", "")
+            row["branch"] = row.get("branch") or ws.get("branch", "")
+        enriched.append(row)
+
+    # Book spine colors — deterministic per session
+    spine_colors = [
+        "#8B4513", "#A0522D", "#6B3A2A", "#2F4F4F", "#1a3a5c",
+        "#4A3728", "#5C4033", "#3B3C36", "#2C3E50", "#4A235A",
+        "#1B4332", "#7B2D26", "#3D0C02", "#1C1C3C", "#4B3621",
+        "#2E4057", "#5B2C6F", "#1A5276", "#6C3461", "#2C3E50",
+    ]
+    spine_accents = [
+        "#DAA520", "#C0C0C0", "#CD7F32", "#E8D44D", "#F5F5DC",
+        "#B8860B", "#FFD700", "#C9B037", "#D4AF37", "#F0E68C",
+    ]
+
+    def book_meta(s):
+        h = int(hashlib.md5(s["id"].encode()).hexdigest(), 16)
+        turns = s["turn_count"]
+
+        # Book thickness scales with turn count (min 18px, max 60px)
+        thickness = min(60, max(18, 8 + turns * 2))
+
+        # Book height scales with turns (min 80px, max 200px)
+        height = min(200, 80 + int(turns * 1.5))
+
+        # Title: use summary, or branch, or "Untitled"
+        title = s.get("summary") or s.get("branch") or "Untitled"
+        if len(title) > 40:
+            title = title[:37] + "…"
+
+        # Genre based on keywords in summary/branch
+        text = (s.get("summary") or "") + " " + (s.get("branch") or "")
+        text_lower = text.lower()
+        if any(w in text_lower for w in ["fix", "bug", "error", "crash"]):
+            genre = "🔧 Bug Fix"
+        elif any(w in text_lower for w in ["test", "spec", "coverage"]):
+            genre = "🧪 Testing"
+        elif any(w in text_lower for w in ["feat", "add", "create", "new", "implement"]):
+            genre = "✨ Feature"
+        elif any(w in text_lower for w in ["refactor", "clean", "rename", "move"]):
+            genre = "🧹 Refactor"
+        elif any(w in text_lower for w in ["doc", "readme", "wiki"]):
+            genre = "📖 Documentation"
+        elif any(w in text_lower for w in ["deploy", "ci", "pipeline", "build"]):
+            genre = "🚀 DevOps"
+        elif any(w in text_lower for w in ["security", "auth", "cred", "secret"]):
+            genre = "🔒 Security"
+        elif turns == 0:
+            genre = "📄 Blank Pages"
+        else:
+            genre = "📘 General"
+
+        # Condition
+        if s["is_active"]:
+            condition = "📖 Currently open"
+        elif turns == 0:
+            condition = "🕸️ Never opened"
+        elif turns < 3:
+            condition = "Barely cracked"
+        elif turns < 10:
+            condition = "Dog-eared"
+        elif turns < 30:
+            condition = "Well-thumbed"
+        else:
+            condition = "Spine cracked 📚"
+
+        return {
+            "thickness": thickness,
+            "height": height,
+            "color": spine_colors[h % len(spine_colors)],
+            "accent": spine_accents[h % len(spine_accents)],
+            "title": title,
+            "genre": genre,
+            "condition": condition,
+        }
+
+    # Group by repo → shelves
+    shelves_map: dict[str, list] = {}
+    for s in enriched:
+        repo = s.get("repository") or "Uncatalogued"
+        shelves_map.setdefault(repo, []).append(s)
+
+    shelves = []
+    for repo, books_raw in shelves_map.items():
+        books = []
+        for s in books_raw:
+            meta = book_meta(s)
+            books.append({**s, **meta})
+        # Sort: active (open) books first, then by turns desc
+        books.sort(key=lambda b: (not b["is_active"], -b["turn_count"]))
+        shelves.append({
+            "name": repo,
+            "short_name": repo.split("/")[-1] if "/" in repo else repo,
+            "books": books,
+            "active_count": sum(1 for b in books if b["is_active"]),
+        })
+
+    # Sort: Uncatalogued first, then by active, then size
+    shelves.sort(key=lambda sh: (
+        0 if sh["name"] == "Uncatalogued" else 1,
+        -sh["active_count"],
+        -len(sh["books"]),
+    ))
+
+    total_active = sum(1 for s in enriched if s["is_active"])
+    total_pages = sum(s["turn_count"] for s in enriched)
+
+    return templates.TemplateResponse(
+        request, "library.html",
+        context={
+            "shelves": shelves,
+            "total_books": len(enriched),
+            "total_active": total_active,
+            "total_pages": total_pages,
+        },
+    )
+
+
 # --- Main ---
 
 if __name__ == "__main__":
