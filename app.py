@@ -938,8 +938,12 @@ async def office_view(request: Request):
             "total_count": len(sess_list),
         })
 
-    # Sort: active rooms first, then by size descending
-    room_data.sort(key=lambda r: (-r["active_count"], -r["total_count"]))
+    # Sort: The Lobby always first, then active rooms, then by size
+    room_data.sort(key=lambda r: (
+        0 if r["name"] == "The Lobby" else 1,
+        -r["active_count"],
+        -r["total_count"],
+    ))
 
     total_active = sum(1 for s in enriched if s["is_active"])
 
