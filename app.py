@@ -65,6 +65,64 @@ def get_active_sessions() -> dict[str, int]:
     return active
 
 
+def get_session_activity_state(session_id: str) -> str:
+    """Detect if an active session is waiting for input or working.
+
+    Returns: 'waiting', 'working', 'stale', or 'unknown'
+    Based on the last event type in events.jsonl:
+      - assistant.turn_end recently (< 1h) → waiting for user prompt
+      - assistant.turn_end long ago (> 1h) → stale (abandoned terminal)
+      - tool.*, function, assistant.turn_start, assistant.message → working
+    """
+    events_path = SESSION_STATE_DIR / session_id / "events.jsonl"
+    if not events_path.exists():
+        return "stale"
+    try:
+        # Read last 64KB — enough for even very long event JSON lines
+        with open(events_path, "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size == 0:
+                return "stale"
+            f.seek(max(0, size - 65536))
+            tail = f.read().decode("utf-8", errors="replace")
+        last_line = ""
+        for line in reversed(tail.splitlines()):
+            if line.strip():
+                last_line = line
+                break
+        if not last_line:
+            return "stale"
+        event = json.loads(last_line)
+        etype = event.get("type", "")
+        timestamp = event.get("timestamp", "")
+
+        if etype == "assistant.turn_end":
+            # Check how long ago - if >1h, it's a stale/abandoned session
+            if timestamp:
+                try:
+                    evt_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    age = (datetime.now(timezone.utc) - evt_time).total_seconds()
+                    if age > 3600:  # 1 hour
+                        return "stale"
+                except Exception:
+                    pass
+            return "waiting"
+        elif etype in ("session.shutdown", "session.start", "session.resume"):
+            return "stale"
+        elif etype in (
+            "tool.execution_start", "tool.execution_complete",
+            "function", "assistant.turn_start", "assistant.message",
+            "hook.start", "hook.end", "subagent.started",
+            "user.message",
+        ):
+            return "working"
+        else:
+            return "unknown"
+    except Exception:
+        return "unknown"
+
+
 def get_workspace_yaml(session_id: str) -> dict:
     """Read workspace.yaml for a session."""
     yaml_path = SESSION_STATE_DIR / session_id / "workspace.yaml"
@@ -173,6 +231,7 @@ async def dashboard(request: Request):
         row = dict(s)
         row["is_active"] = s["id"] in active_pids
         row["pid"] = active_pids.get(s["id"])
+        row["activity_state"] = get_session_activity_state(s["id"]) if row["is_active"] else None
         # Fill in missing metadata from workspace.yaml
         if not row.get("cwd") or not row.get("repository"):
             ws = get_workspace_yaml(s["id"])
@@ -297,6 +356,7 @@ async def api_sessions():
     for s in sessions:
         row = dict(s)
         row["is_active"] = s["id"] in active_pids
+        row["activity_state"] = get_session_activity_state(s["id"]) if row["is_active"] else None
         if not row.get("repository"):
             ws = get_workspace_yaml(s["id"])
             row["repository"] = ws.get("repository", "")
@@ -835,6 +895,7 @@ async def office_view(request: Request):
         row = dict(s)
         row["is_active"] = s["id"] in active_pids
         row["pid"] = active_pids.get(s["id"])
+        row["activity_state"] = get_session_activity_state(s["id"]) if row["is_active"] else None
         if not row.get("cwd") or not row.get("repository"):
             ws = get_workspace_yaml(s["id"])
             row["cwd"] = row.get("cwd") or ws.get("cwd", "")
@@ -985,6 +1046,8 @@ async def library_view(request: Request):
     for s in sessions:
         row = dict(s)
         row["is_active"] = s["id"] in active_pids
+        row["pid"] = active_pids.get(s["id"])
+        row["activity_state"] = get_session_activity_state(s["id"]) if row["is_active"] else None
         if not row.get("cwd") or not row.get("repository"):
             ws = get_workspace_yaml(s["id"])
             row["cwd"] = row.get("cwd") or ws.get("cwd", "")

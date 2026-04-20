@@ -179,6 +179,27 @@
             color: var(--accent-green);
         }
 
+        .badge-waiting {
+            background: rgba(210, 153, 34, 0.2);
+            color: #d2992a;
+            animation: pulse-waiting 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-waiting {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .badge-working {
+            background: rgba(63, 185, 80, 0.15);
+            color: var(--accent-green);
+        }
+
+        .badge-stale {
+            background: rgba(139, 148, 158, 0.15);
+            color: var(--text-muted);
+        }
+
         .badge-repo {
             background: rgba(88, 166, 255, 0.1);
             color: var(--accent);
