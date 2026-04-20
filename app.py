@@ -140,6 +140,17 @@ def get_workspace_yaml(session_id: str) -> dict:
     return result
 
 
+def repo_from_cwd(cwd: str) -> str:
+    """Derive a repository name from the working directory path.
+
+    Used as fallback when no git remote is configured.
+    Returns the directory name (e.g., '/Users/x/code/agency-office' → 'agency-office').
+    """
+    if not cwd:
+        return ""
+    return Path(cwd).name
+
+
 def get_events_summary(session_id: str, max_events: int = 50) -> list[dict]:
     """Read recent events from events.jsonl."""
     events_path = SESSION_STATE_DIR / session_id / "events.jsonl"
@@ -238,6 +249,9 @@ async def dashboard(request: Request):
             row["cwd"] = row.get("cwd") or ws.get("cwd", "")
             row["repository"] = row.get("repository") or ws.get("repository", "")
             row["branch"] = row.get("branch") or ws.get("branch", "")
+        # Fallback: derive repo name from cwd when no git remote
+        if not row.get("repository"):
+            row["repository"] = repo_from_cwd(row.get("cwd", ""))
         enriched.append(row)
 
     # Group ALL sessions by repo (active sessions appear in their repo blocks)
@@ -361,6 +375,9 @@ async def api_sessions():
             ws = get_workspace_yaml(s["id"])
             row["repository"] = ws.get("repository", "")
             row["branch"] = ws.get("branch", "")
+            row["cwd"] = row.get("cwd", "") or ws.get("cwd", "")
+        if not row.get("repository"):
+            row["repository"] = repo_from_cwd(row.get("cwd", ""))
         data.append(row)
 
     return data
@@ -901,6 +918,8 @@ async def office_view(request: Request):
             row["cwd"] = row.get("cwd") or ws.get("cwd", "")
             row["repository"] = row.get("repository") or ws.get("repository", "")
             row["branch"] = row.get("branch") or ws.get("branch", "")
+        if not row.get("repository"):
+            row["repository"] = repo_from_cwd(row.get("cwd", ""))
         enriched.append(row)
 
     # Assign each worker a persistent persona based on session ID
@@ -1053,6 +1072,8 @@ async def library_view(request: Request):
             row["cwd"] = row.get("cwd") or ws.get("cwd", "")
             row["repository"] = row.get("repository") or ws.get("repository", "")
             row["branch"] = row.get("branch") or ws.get("branch", "")
+        if not row.get("repository"):
+            row["repository"] = repo_from_cwd(row.get("cwd", ""))
         enriched.append(row)
 
     # Book spine colors — deterministic per session
