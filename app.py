@@ -216,13 +216,11 @@ templates.env.filters["truncate"] = truncate
 
 # --- Routes ---
 
-@app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
-    """Main dashboard — active sessions + recent sessions grouped by repo."""
+def _get_dashboard_data():
+    """Shared helper: fetch and enrich all dashboard data."""
     active_pids = get_active_sessions()
 
     with get_db() as db:
-        # All sessions ordered by recent activity
         sessions = db.execute("""
             SELECT s.id, s.cwd, s.repository, s.branch, s.summary,
                    s.created_at, s.updated_at,
@@ -234,45 +232,56 @@ async def dashboard(request: Request):
             LIMIT 200
         """).fetchall()
 
-    # Enrich with live status and workspace data
     enriched = []
     for s in sessions:
         row = dict(s)
         row["is_active"] = s["id"] in active_pids
         row["pid"] = active_pids.get(s["id"])
         row["activity_state"] = get_session_activity_state(s["id"]) if row["is_active"] else None
-        # Fill in missing metadata from workspace.yaml
         if not row.get("cwd") or not row.get("repository"):
             ws = get_workspace_yaml(s["id"])
             row["cwd"] = row.get("cwd") or ws.get("cwd", "")
             row["repository"] = row.get("repository") or ws.get("repository", "")
             row["branch"] = row.get("branch") or ws.get("branch", "")
-        # Fallback: derive repo name from cwd when no git remote
         if not row.get("repository"):
             row["repository"] = repo_from_cwd(row.get("cwd", ""))
         enriched.append(row)
 
-    # Group ALL sessions by repo (active sessions appear in their repo blocks)
     repos: dict[str, list] = {}
     for s in enriched:
         repo = s.get("repository") or "No Repository"
         repos.setdefault(repo, []).append(s)
-
-    # Sort: "No Repository" first, then alphabetically by repo name
     sorted_repos = dict(
         sorted(repos.items(), key=lambda kv: (0 if kv[0] == "No Repository" else 1, kv[0].lower()))
     )
-
     active = [s for s in enriched if s["is_active"]]
 
-    return templates.TemplateResponse(
-        request, "dashboard.html",
-        context={
-            "active_sessions": active,
-            "repos": sorted_repos,
-            "total_sessions": len(enriched),
-        },
-    )
+    return {
+        "active_sessions": active,
+        "repos": sorted_repos,
+        "total_sessions": len(enriched),
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+async def dashboard(request: Request):
+    """Main dashboard — active sessions + recent sessions grouped by repo."""
+    data = _get_dashboard_data()
+    return templates.TemplateResponse(request, "dashboard.html", context=data)
+
+
+@app.get("/partials/stats", response_class=HTMLResponse)
+async def partials_stats(request: Request):
+    """Partial: just the stats bar, for htmx polling."""
+    data = _get_dashboard_data()
+    return templates.TemplateResponse(request, "partials/stats.html", context=data)
+
+
+@app.get("/partials/active-sessions", response_class=HTMLResponse)
+async def partials_active_sessions(request: Request):
+    """Partial: just the active sessions section, for htmx polling."""
+    data = _get_dashboard_data()
+    return templates.TemplateResponse(request, "partials/active_sessions.html", context=data)
 
 
 @app.get("/session/{session_id}", response_class=HTMLResponse)

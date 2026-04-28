@@ -3,72 +3,22 @@
 {% block nav_dashboard %}active{% endblock %}
 
 {% block content %}
-<!-- Stats -->
-<div class="stats-bar">
-    <div class="stat">
-        <span class="stat-value">{{ active_sessions | selectattr('activity_state', 'equalto', 'working') | list | length }}</span>
-        <span class="stat-label">⚙️ Working</span>
-    </div>
-    <div class="stat">
-        <span class="stat-value">{{ active_sessions | selectattr('activity_state', 'equalto', 'waiting') | list | length }}</span>
-        <span class="stat-label">⏳ Waiting</span>
-    </div>
-    <div class="stat">
-        <span class="stat-value">{{ active_sessions | selectattr('activity_state', 'equalto', 'stale') | list | length }}</span>
-        <span class="stat-label">💤 Idle</span>
-    </div>
-    <div class="stat">
-        <span class="stat-value" id="totalSessionCount">{{ total_sessions }}</span>
-        <span class="stat-label">Total Sessions</span>
-    </div>
-    <div class="stat">
-        <span class="stat-value" id="repoCount">{{ repos | length }}</span>
-        <span class="stat-label">Repositories</span>
-    </div>
+<!-- Stats (auto-refreshes every 30s) -->
+<div class="stats-bar"
+     hx-get="/partials/stats"
+     hx-trigger="every 30s"
+     hx-swap="innerHTML">
+    {% include "partials/stats.html" %}
 </div>
 
-<!-- Active Sessions -->
-{% if active_sessions %}
-<div style="margin-bottom: 32px;">
-    <div class="section-title">
-        🟢 Active Sessions
-        <span class="count">{{ active_sessions | length }}</span>
-    </div>
-    <div class="session-list" style="display: flex; flex-direction: column; gap: 8px;">
-        {% for s in active_sessions %}
-        <div class="session-card active">
-            <div class="session-main">
-                <div class="session-summary">
-                    <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
-                </div>
-                <div class="session-meta">
-                    {% if s.activity_state == 'waiting' %}
-                    <span class="badge badge-waiting">⏳ Waiting for input</span>
-                    {% elif s.activity_state == 'working' %}
-                    <span class="badge badge-working">⚙️ Working (PID {{ s.pid }})</span>
-                    {% elif s.activity_state == 'stale' %}
-                    <span class="badge badge-stale">💤 Idle ({{ s.updated_at | time_ago }})</span>
-                    {% else %}
-                    <span class="badge badge-active">● Running (PID {{ s.pid }})</span>
-                    {% endif %}
-                    {% if s.repository %}
-                    <span class="badge badge-repo">{{ s.repository | short_repo }}</span>
-                    {% endif %}
-                    {% if s.branch %}
-                    <span class="badge badge-branch">⎇ {{ s.branch }}</span>
-                    {% endif %}
-                    <span>{{ s.turn_count }} turns</span>
-                    <span>{{ s.updated_at | time_ago }}</span>
-                </div>
-            </div>
-            <div class="session-actions">
-                <a href="/session/{{ s.id }}" class="btn">View</a>
-            </div>
-        </div>
-        {% endfor %}
-    </div>
+<!-- Active Sessions (auto-refreshes every 30s) -->
+<div id="active-sessions"
+     style="margin-bottom: 32px;"
+     hx-get="/partials/active-sessions"
+     hx-trigger="every 30s"
+     hx-swap="innerHTML">
+    {% include "partials/active_sessions.html" %}
 </div>
-{% endif %}
 
 <!-- Recent Sessions by Repo -->
 <div class="section-title">

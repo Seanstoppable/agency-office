@@ -1,0 +1,43 @@
+{% if active_sessions %}
+<div class="section-title">
+    🟢 Active Sessions
+    <span class="count">{{ active_sessions | length }}</span>
+</div>
+<div class="session-list" style="display: flex; flex-direction: column; gap: 8px;">
+    {% for s in active_sessions %}
+    <div class="session-card active">
+        <div class="session-main">
+            <div class="session-summary">
+                <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
+            </div>
+            <div class="session-meta">
+                {% if s.activity_state == 'waiting' %}
+                <span class="badge badge-waiting">⏳ Waiting for input</span>
+                {% elif s.activity_state == 'working' %}
+                <span class="badge badge-working">⚙️ Working (PID {{ s.pid }})</span>
+                {% elif s.activity_state == 'stale' %}
+                <span class="badge badge-stale">💤 Idle ({{ s.updated_at | time_ago }})</span>
+                {% else %}
+                <span class="badge badge-active">● Running (PID {{ s.pid }})</span>
+                {% endif %}
+                {% if s.repository %}
+                <span class="badge badge-repo">{{ s.repository | short_repo }}</span>
+                {% endif %}
+                {% if s.branch %}
+                <span class="badge badge-branch">⎇ {{ s.branch }}</span>
+                {% endif %}
+                <span>{{ s.turn_count }} turns</span>
+                <span>{{ s.updated_at | time_ago }}</span>
+            </div>
+        </div>
+        <div class="session-actions">
+            <a href="/session/{{ s.id }}" class="btn">View</a>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="section-title" style="opacity: 0.5;">
+    ⚪ No Active Sessions
+</div>
+{% endif %}

@@ -1,0 +1,20 @@
+<div class="stat">
+    <span class="stat-value">{{ active_sessions | selectattr('activity_state', 'equalto', 'working') | list | length }}</span>
+    <span class="stat-label">⚙️ Working</span>
+</div>
+<div class="stat">
+    <span class="stat-value">{{ active_sessions | selectattr('activity_state', 'equalto', 'waiting') | list | length }}</span>
+    <span class="stat-label">⏳ Waiting</span>
+</div>
+<div class="stat">
+    <span class="stat-value">{{ active_sessions | selectattr('activity_state', 'equalto', 'stale') | list | length }}</span>
+    <span class="stat-label">💤 Idle</span>
+</div>
+<div class="stat">
+    <span class="stat-value" id="totalSessionCount">{{ total_sessions }}</span>
+    <span class="stat-label">Total Sessions</span>
+</div>
+<div class="stat">
+    <span class="stat-value" id="repoCount">{{ repos | length }}</span>
+    <span class="stat-label">Repositories</span>
+</div>
