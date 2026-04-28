@@ -20,7 +20,6 @@ from contextlib import contextmanager
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
 
@@ -31,7 +30,6 @@ SESSION_STORE_DB = COPILOT_DIR / "session-store.db"
 SESSION_STATE_DIR = COPILOT_DIR / "session-state"
 
 app = FastAPI(title="Agency Session Dashboard")
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 
