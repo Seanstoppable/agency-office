@@ -895,9 +895,8 @@ async def api_cleanup_stale_locks():
 
 # --- Office View ---
 
-@app.get("/office", response_class=HTMLResponse)
-async def office_view(request: Request):
-    """Whimsical office floor plan — repos are rooms, sessions are workers."""
+def _get_office_data():
+    """Shared helper: fetch and enrich office view data."""
     import hashlib
 
     active_pids = get_active_sessions()
@@ -949,24 +948,18 @@ async def office_view(request: Request):
 
     def worker_activity(s):
         """Build a real description from session data, with a whimsical wrapper."""
-        from datetime import datetime, timezone
-
-        # Use summary if available — it's the best signal
         if s.get("summary"):
             summary = s["summary"]
-            # Truncate long summaries
             if len(summary) > 60:
                 summary = summary[:57] + "…"
             if s["is_active"]:
                 return f"🔥 {summary}"
             return summary
 
-        # No summary — describe from what we know
         branch = s.get("branch", "")
         turns = s["turn_count"]
         updated = s.get("updated_at", "")
 
-        # Compute age
         age_str = ""
         if updated:
             try:
@@ -991,7 +984,6 @@ async def office_view(request: Request):
                 return f"working on {branch}"
             return f"active — {turns} turns deep"
 
-        # Idle with some context
         parts = []
         if branch:
             parts.append(f"⎇ {branch}")
@@ -1037,14 +1029,25 @@ async def office_view(request: Request):
 
     total_active = sum(1 for s in enriched if s["is_active"])
 
-    return templates.TemplateResponse(
-        request, "office.html",
-        context={
-            "rooms": room_data,
-            "total_workers": len(enriched),
-            "total_active": total_active,
-        },
-    )
+    return {
+        "rooms": room_data,
+        "total_workers": len(enriched),
+        "total_active": total_active,
+    }
+
+
+@app.get("/office", response_class=HTMLResponse)
+async def office_view(request: Request):
+    """Whimsical office floor plan — repos are rooms, sessions are workers."""
+    data = _get_office_data()
+    return templates.TemplateResponse(request, "office.html", context=data)
+
+
+@app.get("/partials/office-floor", response_class=HTMLResponse)
+async def partials_office_floor(request: Request):
+    """Partial: reception + floor plan, for htmx polling."""
+    data = _get_office_data()
+    return templates.TemplateResponse(request, "partials/office_floor.html", context=data)
 
 
 # --- Library View ---
