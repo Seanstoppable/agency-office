@@ -49,17 +49,32 @@ def get_db():
 # --- Session state helpers ---
 
 def get_active_sessions() -> dict[str, int]:
-    """Return {session_id: pid} for sessions with a live lock file."""
-    active = {}
+    """Return {session_id: pid} for sessions with a live lock file.
+
+    When a session is resumed, the CLI creates a new session but the old
+    session's lock file persists with the same PID.  To avoid showing ghost
+    sessions, we deduplicate: when multiple sessions share a PID, only the
+    one with the newest lock file (i.e. the session the process is actually
+    running) is considered active.
+    """
+    # Collect all live lock files grouped by PID
+    pid_candidates: dict[int, list[tuple[str, float]]] = {}
     for lock_file in SESSION_STATE_DIR.glob("*/inuse.*.lock"):
         session_id = lock_file.parent.name
         pid_str = lock_file.stem.split(".")[-1]  # inuse.{pid}
         try:
             pid = int(pid_str)
             os.kill(pid, 0)  # check if alive
-            active[session_id] = pid
-        except (ValueError, ProcessLookupError, PermissionError):
+            mtime = lock_file.stat().st_mtime
+            pid_candidates.setdefault(pid, []).append((session_id, mtime))
+        except (ValueError, ProcessLookupError, PermissionError, OSError):
             pass
+
+    # For each PID, keep only the session with the newest lock file
+    active = {}
+    for pid, candidates in pid_candidates.items():
+        newest_session = max(candidates, key=lambda c: c[1])[0]
+        active[newest_session] = pid
     return active
 
 
