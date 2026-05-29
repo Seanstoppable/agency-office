@@ -8,6 +8,7 @@ and session interaction capabilities.
 
 import asyncio
 import os
+import platform
 import re
 import shutil
 import signal
@@ -48,6 +49,25 @@ def get_db():
 
 # --- Session state helpers ---
 
+def _get_boot_time() -> float | None:
+    """Return system boot time as a Unix timestamp, or None if unavailable."""
+    if platform.system() != "Darwin":
+        return None
+    try:
+        out = subprocess.check_output(
+            ["sysctl", "-n", "kern.boottime"], text=True, timeout=2
+        )
+        # Format: "{ sec = 1780060515, usec = 596311 } Fri May 29 ..."
+        match = re.search(r"sec\s*=\s*(\d+)", out)
+        return float(match.group(1)) if match else None
+    except (subprocess.SubprocessError, OSError):
+        return None
+
+
+# Cache boot time at module load — it won't change while we're running
+_BOOT_TIMESTAMP: float | None = _get_boot_time()
+
+
 def get_active_sessions() -> dict[str, int]:
     """Return {session_id: pid} for sessions with a live lock file.
 
@@ -56,6 +76,10 @@ def get_active_sessions() -> dict[str, int]:
     sessions, we deduplicate: when multiple sessions share a PID, only the
     one with the newest lock file (i.e. the session the process is actually
     running) is considered active.
+
+    Lock files whose mtime predates the system boot are always ignored —
+    those PIDs belong to a previous OS session and any PID match is just
+    reuse.
     """
     # Collect all live lock files grouped by PID
     pid_candidates: dict[int, list[tuple[str, float]]] = {}
@@ -64,8 +88,11 @@ def get_active_sessions() -> dict[str, int]:
         pid_str = lock_file.stem.split(".")[-1]  # inuse.{pid}
         try:
             pid = int(pid_str)
-            os.kill(pid, 0)  # check if alive
             mtime = lock_file.stat().st_mtime
+            # Skip lock files from before this boot — PID is stale
+            if _BOOT_TIMESTAMP and mtime < _BOOT_TIMESTAMP:
+                continue
+            os.kill(pid, 0)  # check if alive
             pid_candidates.setdefault(pid, []).append((session_id, mtime))
         except (ValueError, ProcessLookupError, PermissionError, OSError):
             pass
@@ -816,21 +843,28 @@ templates.env.filters["format_size"] = format_size
 
 
 def cleanup_stale_locks() -> int:
-    """Remove inuse.*.lock files where the PID is dead. Returns count removed."""
+    """Remove inuse.*.lock files where the PID is dead or from before boot. Returns count removed."""
     removed = 0
     for lock_file in SESSION_STATE_DIR.glob("*/inuse.*.lock"):
         pid_str = lock_file.stem.split(".")[-1]
+        stale = False
         try:
             pid = int(pid_str)
-            os.kill(pid, 0)  # alive — keep it
+            # Pre-boot lock files are always stale — PID match is just reuse
+            if _BOOT_TIMESTAMP and lock_file.stat().st_mtime < _BOOT_TIMESTAMP:
+                stale = True
+            else:
+                os.kill(pid, 0)  # alive — keep it
         except (ValueError, ProcessLookupError):
+            stale = True
+        except PermissionError:
+            pass  # alive but can't signal — keep it
+        if stale:
             try:
                 lock_file.unlink()
                 removed += 1
             except Exception:
                 pass
-        except PermissionError:
-            pass  # alive but can't signal — keep it
     return removed
 
 
@@ -855,7 +889,10 @@ async def cleanup_page(
         pid_str = lock_file.stem.split(".")[-1]
         try:
             pid = int(pid_str)
-            os.kill(pid, 0)
+            if _BOOT_TIMESTAMP and lock_file.stat().st_mtime < _BOOT_TIMESTAMP:
+                stale_locks += 1
+            else:
+                os.kill(pid, 0)
         except (ValueError, ProcessLookupError):
             stale_locks += 1
         except PermissionError:
