@@ -467,6 +467,71 @@ async def resume_session(session_id: str):
         )
 
 
+@app.post("/api/focus/{session_id}", response_class=JSONResponse)
+async def focus_session(session_id: str):
+    """Focus the iTerm2 tab running an active session."""
+    active_pids = get_active_sessions()
+    pid = active_pids.get(session_id)
+    if not pid:
+        return JSONResponse(
+            {"status": "error", "message": "Session is not active"},
+            status_code=404
+        )
+
+    # Get the tty for this PID
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "tty="],
+            capture_output=True, text=True, check=True
+        )
+        tty = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return JSONResponse(
+            {"status": "error", "message": f"Could not find tty for PID {pid}"},
+            status_code=500
+        )
+
+    if not tty or tty == "??":
+        return JSONResponse(
+            {"status": "error", "message": f"PID {pid} has no controlling terminal"},
+            status_code=500
+        )
+
+    ascript = f'''
+    tell application "iTerm2"
+        activate
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    if tty of s contains "{tty}" then
+                        select t
+                        tell w to select
+                        return "ok"
+                    end if
+                end repeat
+            end repeat
+        end repeat
+        return "not found"
+    end tell
+    '''
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", ascript],
+            capture_output=True, text=True, check=True
+        )
+        if "not found" in result.stdout:
+            return JSONResponse(
+                {"status": "error", "message": f"No iTerm2 tab found for tty {tty}"},
+                status_code=404
+            )
+        return {"status": "ok", "message": f"Focused session {session_id[:8]}…"}
+    except subprocess.CalledProcessError as e:
+        return JSONResponse(
+            {"status": "error", "message": str(e)},
+            status_code=500
+        )
+
+
 # --- Worktree & Git helpers ---
 
 def get_worktrees() -> list[dict]:

@@ -585,6 +585,16 @@
             }
         }
 
+        async function focusSession(sessionId) {
+            try {
+                const r = await fetch(`/api/focus/${sessionId}`, {method: 'POST'});
+                const data = await r.json();
+                showToast(data.message);
+            } catch(e) {
+                showToast('Error: ' + e.message);
+            }
+        }
+
         // Close modal on Escape
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') hideLaunchModal();
