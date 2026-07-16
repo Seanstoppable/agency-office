@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Recent Sessions — Agency Dashboard{% endblock %}
+{% block nav_recent %}active{% endblock %}
+
+{% block content %}
+<div class="section-title">
+    🕘 Recent Sessions
+    <span class="count">{{ recent | length }}</span>
+    <span style="font-weight: normal; font-size: 12px; color: var(--text-dim);">across all repositories, most recent first</span>
+</div>
+
+<!-- Batch selection toolbar -->
+<div id="batchBar" style="display: none; align-items: center; gap: 12px; padding: 10px 16px; margin-bottom: 12px; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 6px;">
+    <label style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-muted); cursor: pointer;">
+        <input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"> Select all
+    </label>
+    <span id="selectedCount" style="font-size: 13px; color: var(--text-muted);">0 selected</span>
+    <span style="flex: 1;"></span>
+    <button class="btn" style="color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
+            onclick="purgeSelected(this)" id="batchDeleteBtn" disabled>🗑 Delete selected</button>
+</div>
+
+<div class="session-list" style="display: flex; flex-direction: column; gap: 6px;">
+    {% for s in recent %}
+    <div class="session-card {{ 'active' if s.is_active else '' }}" data-session-id="{{ s.id }}">
+        <div class="session-main" style="display: flex; gap: 10px; align-items: flex-start; min-width: 0;">
+            {% if not s.is_active %}
+            <input type="checkbox" class="session-select" value="{{ s.id }}" onchange="updateSelection()" style="margin-top: 3px;">
+            {% endif %}
+            <div style="min-width: 0; flex: 1;">
+            <div class="session-summary">
+                <a href="/session/{{ s.id }}">{{ s.summary or 'Untitled session' }}</a>
+            </div>
+            <div class="session-meta">
+                {% if s.is_active %}
+                {% if s.activity_state == 'waiting' %}
+                <span class="badge badge-waiting">⏳ Waiting for input</span>
+                {% elif s.activity_state == 'working' %}
+                <span class="badge badge-working">⚙️ Working</span>
+                {% elif s.activity_state == 'stale' %}
+                <span class="badge badge-stale">💤 Idle</span>
+                {% else %}
+                <span class="badge badge-active">● Running</span>
+                {% endif %}
+                {% endif %}
+                <span class="badge badge-repo">{{ s.repository | short_repo }}</span>
+                {% if s.branch %}
+                <span class="badge badge-branch">⎇ {{ s.branch }}</span>
+                {% endif %}
+                <span>{{ s.turn_count }} turns</span>
+                <span>{{ s.updated_at | time_ago }}</span>
+            </div>
+            </div>
+        </div>
+        <div class="session-actions">
+            {% if s.is_active %}
+            <button class="btn btn-focus" onclick="focusSession('{{ s.id }}')" title="Switch to iTerm2 tab">📺 Focus</button>
+            {% else %}
+            <button class="btn btn-primary" onclick="resumeSession('{{ s.id }}')">Resume</button>
+            {% endif %}
+            <a href="/session/{{ s.id }}" class="btn">View</a>
+            {% if not s.is_active %}
+            <button class="btn" style="color: var(--accent-red); border-color: rgba(248, 81, 73, 0.3);"
+                    onclick="purgeSession('{{ s.id }}', this)"
+                    title="Permanently delete this session">🗑</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+{% if not recent %}
+<div class="empty-state">
+    <p>No sessions found.</p>
+</div>
+{% endif %}
+
+<script>
+function selectableCheckboxes() {
+    return Array.from(document.querySelectorAll('.session-select'))
+        .filter(cb => cb.closest('.session-card').style.display !== 'none');
+}
+
+function updateSelection() {
+    const boxes = selectableCheckboxes();
+    const checked = boxes.filter(cb => cb.checked);
+    document.getElementById('selectedCount').textContent = `${checked.length} selected`;
+    const delBtn = document.getElementById('batchDeleteBtn');
+    delBtn.disabled = checked.length === 0;
+    const selectAll = document.getElementById('selectAll');
+    selectAll.checked = boxes.length > 0 && checked.length === boxes.length;
+    selectAll.indeterminate = checked.length > 0 && checked.length < boxes.length;
+}
+
+function toggleSelectAll(master) {
+    selectableCheckboxes().forEach(cb => cb.checked = master.checked);
+    updateSelection();
+}
+
+async function purgeSelected(btn) {
+    const ids = selectableCheckboxes().filter(cb => cb.checked).map(cb => cb.value);
+    if (ids.length === 0) return;
+    if (!confirm(`Permanently delete ${ids.length} session(s)?\n\nThis removes the session folders and all database entries. This cannot be undone.`)) return;
+    btn.disabled = true;
+    const orig = btn.textContent;
+    btn.textContent = 'Deleting…';
+    try {
+        const r = await fetch('/api/cleanup/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_ids: ids})
+        });
+        const data = await r.json();
+        showToast(data.message);
+        if (data.status === 'ok') {
+            ids.forEach(id => {
+                const card = document.querySelector(`.session-card[data-session-id="${id}"]`);
+                if (card) card.style.display = 'none';
+            });
+            document.getElementById('selectAll').checked = false;
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+    btn.textContent = orig;
+    updateSelection();
+}
+
+async function purgeSession(sessionId, btn) {
+    if (!confirm('Permanently delete this session?\n\nThis removes the session folder and all database entries. This cannot be undone.')) return;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+        const r = await fetch('/api/cleanup/purge', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({session_ids: [sessionId]})
+        });
+        const data = await r.json();
+        showToast(data.message);
+        if (data.status === 'ok') {
+            const card = btn.closest('.session-card');
+            card.style.display = 'none';
+            updateSelection();
+        }
+    } catch(e) {
+        showToast('Error: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.textContent = '🗑';
+}
+
+// Show batch toolbar only if there are selectable sessions
+document.addEventListener('DOMContentLoaded', () => {
+    if (document.querySelectorAll('.session-select').length > 0) {
+        document.getElementById('batchBar').style.display = 'flex';
+    }
+});
+</script>
+{% endblock %}

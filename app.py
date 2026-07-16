@@ -301,6 +301,7 @@ def _get_dashboard_data():
     return {
         "active_sessions": active,
         "repos": sorted_repos,
+        "recent": enriched,
         "total_sessions": len(enriched),
     }
 
@@ -310,6 +311,13 @@ async def dashboard(request: Request):
     """Main dashboard — active sessions + recent sessions grouped by repo."""
     data = _get_dashboard_data()
     return templates.TemplateResponse(request, "dashboard.html", context=data)
+
+
+@app.get("/recent", response_class=HTMLResponse)
+async def recent(request: Request):
+    """Recent sessions — flat list across all repos, sorted by recency."""
+    data = _get_dashboard_data()
+    return templates.TemplateResponse(request, "recent.html", context=data)
 
 
 @app.get("/partials/stats", response_class=HTMLResponse)
