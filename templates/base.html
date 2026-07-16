@@ -532,9 +532,10 @@
                 <a href="/recent" class="{% block nav_recent %}{% endblock %}">🕘 Recent</a>
                 <a href="/worktrees" class="{% block nav_worktrees %}{% endblock %}">Worktrees</a>
                 <a href="/cleanup" class="{% block nav_cleanup %}{% endblock %}">Cleanup</a>
-                <form action="/search" method="get" style="display: flex;">
-                    <input type="text" name="q" class="nav-search-input"
-                           placeholder="🔍 Search sessions…" value="{{ query if query is defined else '' }}">
+                <form action="/search" method="get" style="display: flex;" onsubmit="return onHeaderSearchSubmit(event)">
+                    <input type="text" name="q" id="headerSearch" class="nav-search-input"
+                           placeholder="🔍 Filter this view…" value="{{ query if query is defined else '' }}"
+                           oninput="applyViewFilter(this.value)" autocomplete="off">
                 </form>
                 <a href="/office" class="{% block nav_office %}{% endblock %}">🏢 The Office</a>
                 <a href="/library" class="{% block nav_library %}{% endblock %}">📚 Library</a>
@@ -569,6 +570,44 @@
     <div class="toast" id="toast"></div>
 
     <script>
+        // --- Live view filtering (header search box) ---
+        const FILTER_ITEM_SELECTOR = '.session-card, .book, .room .desk';
+        const FILTER_CONTAINER_SELECTOR = '.repo-section, .bookshelf-wrap, .room';
+
+        function applyViewFilter(rawQuery) {
+            const q = (rawQuery || '').trim().toLowerCase();
+            const items = document.querySelectorAll(FILTER_ITEM_SELECTOR);
+            items.forEach(el => {
+                if (el.dataset.origDisplay === undefined) el.dataset.origDisplay = el.style.display || '';
+                const match = !q || el.textContent.toLowerCase().includes(q);
+                // While filtering, reveal matches even if normally collapsed (e.g. overflow cards).
+                el.style.display = match ? (q ? '' : el.dataset.origDisplay) : 'none';
+            });
+            document.querySelectorAll(FILTER_CONTAINER_SELECTOR).forEach(c => {
+                if (c.dataset.origDisplay === undefined) c.dataset.origDisplay = c.style.display || '';
+                const its = c.querySelectorAll(FILTER_ITEM_SELECTOR);
+                if (!its.length) return;
+                const anyVisible = Array.from(its).some(i => i.style.display !== 'none');
+                c.style.display = (q && !anyVisible) ? 'none' : c.dataset.origDisplay;
+            });
+        }
+
+        function onHeaderSearchSubmit(e) {
+            // If the current view has filterable items, keep the user here (live filter already applied).
+            // Otherwise fall back to the full-text /search results page.
+            if (document.querySelector(FILTER_ITEM_SELECTOR)) {
+                e.preventDefault();
+                return false;
+            }
+            return true;
+        }
+
+        // Re-apply the filter after htmx swaps in fresh content.
+        document.body.addEventListener('htmx:afterSwap', () => {
+            const s = document.getElementById('headerSearch');
+            if (s && s.value.trim()) applyViewFilter(s.value);
+        });
+
         function showLaunchModal() {
             document.getElementById('launchModal').classList.add('show');
         }
