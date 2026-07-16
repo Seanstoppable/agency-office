@@ -81,6 +81,26 @@
             text-decoration: none;
         }
 
+        .nav-search-input {
+            padding: 5px 10px;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 13px;
+            width: 180px;
+            transition: width 0.15s, border-color 0.15s;
+        }
+
+        .nav-search-input:focus {
+            outline: none;
+            width: 240px;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+        }
+
+        .nav-search-input::placeholder { color: var(--text-dim); }
+
         /* Stats bar */
         .stats-bar {
             display: flex;
@@ -512,7 +532,10 @@
                 <a href="/recent" class="{% block nav_recent %}{% endblock %}">🕘 Recent</a>
                 <a href="/worktrees" class="{% block nav_worktrees %}{% endblock %}">Worktrees</a>
                 <a href="/cleanup" class="{% block nav_cleanup %}{% endblock %}">Cleanup</a>
-                <a href="/search" class="{% block nav_search %}{% endblock %}">Search</a>
+                <form action="/search" method="get" style="display: flex;">
+                    <input type="text" name="q" class="nav-search-input"
+                           placeholder="🔍 Search sessions…" value="{{ query if query is defined else '' }}">
+                </form>
                 <a href="/office" class="{% block nav_office %}{% endblock %}">🏢 The Office</a>
                 <a href="/library" class="{% block nav_library %}{% endblock %}">📚 Library</a>
                 <button class="btn btn-primary" onclick="showLaunchModal()">+ New Session</button>
