@@ -24,7 +24,7 @@
         <span>Updated {{ session.updated_at | time_ago }}</span>
     </div>
     <div style="margin-top: 12px; display: flex; gap: 8px;">
-        {% if session.is_active %}
+        {% if session.is_active and terminal_backend == "iterm2" %}
         <button class="btn btn-primary" onclick="focusSession('{{ session.id }}')">📺 Focus</button>
         {% endif %}
         {% if copilot_available %}

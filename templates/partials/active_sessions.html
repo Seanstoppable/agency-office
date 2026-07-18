@@ -31,7 +31,9 @@
             </div>
         </div>
         <div class="session-actions">
+            {% if terminal_backend == "iterm2" %}
             <button class="btn btn-focus" onclick="focusSession('{{ s.id }}')" title="Switch to terminal tab">📺 Focus</button>
+            {% endif %}
             <a href="/session/{{ s.id }}" class="btn">View</a>
         </div>
     </div>

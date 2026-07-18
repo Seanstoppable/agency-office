@@ -53,7 +53,7 @@
             </div>
         </div>
         <div class="session-actions">
-            {% if s.is_active %}
+            {% if s.is_active and terminal_backend == "iterm2" %}
             <button class="btn btn-focus" onclick="focusSession('{{ s.id }}')" title="Switch to terminal tab">📺 Focus</button>
             {% elif copilot_available %}
             <button class="btn btn-primary" onclick="resumeSession('{{ s.id }}')">Resume</button>
