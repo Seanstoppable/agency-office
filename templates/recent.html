@@ -54,8 +54,8 @@
         </div>
         <div class="session-actions">
             {% if s.is_active %}
-            <button class="btn btn-focus" onclick="focusSession('{{ s.id }}')" title="Switch to iTerm2 tab">📺 Focus</button>
-            {% else %}
+            <button class="btn btn-focus" onclick="focusSession('{{ s.id }}')" title="Switch to terminal tab">📺 Focus</button>
+            {% elif copilot_available %}
             <button class="btn btn-primary" onclick="resumeSession('{{ s.id }}')">Resume</button>
             {% endif %}
             <a href="/session/{{ s.id }}" class="btn">View</a>

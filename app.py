@@ -290,22 +290,25 @@ def _detect_terminal() -> str:
 _TERMINAL_BACKEND: str = _detect_terminal()
 
 
-def _detect_copilot_cli() -> list[str]:
-    """Return the command prefix for the Copilot CLI.
+def _detect_copilot_cli() -> tuple[list[str], bool]:
+    """Return (command_prefix, is_available) for the Copilot CLI.
 
     Prefers ``agency copilot`` (wrapper) if available, falls back to ``copilot``.
     Override with the AGENCY_CLI env var (e.g. "agency copilot" or "copilot").
     """
     override = os.environ.get("AGENCY_CLI", "").strip()
     if override:
-        return override.split()
+        parts = override.split()
+        return parts, shutil.which(parts[0]) is not None
 
     if shutil.which("agency"):
-        return ["agency", "copilot"]
-    return ["copilot"]
+        return ["agency", "copilot"], True
+    if shutil.which("copilot"):
+        return ["copilot"], True
+    return ["copilot"], False
 
 
-_COPILOT_CMD: list[str] = _detect_copilot_cli()
+_COPILOT_CMD, _COPILOT_AVAILABLE = _detect_copilot_cli()
 
 
 def _launch_in_terminal(cmd: str, cwd: str) -> dict:
@@ -492,6 +495,11 @@ def truncate(text: str | None, length: int = 80) -> str:
 templates.env.filters["time_ago"] = time_ago
 templates.env.filters["short_repo"] = short_repo
 templates.env.filters["truncate"] = truncate
+
+# Expose platform capabilities to all templates
+templates.env.globals["copilot_available"] = _COPILOT_AVAILABLE
+templates.env.globals["copilot_cmd"] = " ".join(_COPILOT_CMD)
+templates.env.globals["terminal_backend"] = _TERMINAL_BACKEND
 
 
 # --- Routes ---
@@ -681,6 +689,11 @@ async def api_sessions():
 @app.post("/api/launch", response_class=JSONResponse)
 async def launch_session(request: Request):
     """Launch a new agency session in a terminal."""
+    if not _COPILOT_AVAILABLE:
+        return JSONResponse(
+            {"status": "error", "message": "Copilot CLI not found. Install with: npm install -g @githubnext/copilot-cli"},
+            status_code=501,
+        )
     body = await request.json()
     cwd = body.get("cwd", os.path.expanduser("~"))
     prompt = body.get("prompt", "")
@@ -698,6 +711,11 @@ async def launch_session(request: Request):
 @app.post("/api/resume/{session_id}", response_class=JSONResponse)
 async def resume_session(session_id: str):
     """Resume a session in a terminal."""
+    if not _COPILOT_AVAILABLE:
+        return JSONResponse(
+            {"status": "error", "message": "Copilot CLI not found. Install with: npm install -g @githubnext/copilot-cli"},
+            status_code=501,
+        )
     ws = get_workspace_yaml(session_id)
     cwd = ws.get("cwd", os.path.expanduser("~"))
 

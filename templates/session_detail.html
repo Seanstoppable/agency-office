@@ -25,9 +25,11 @@
     </div>
     <div style="margin-top: 12px; display: flex; gap: 8px;">
         {% if session.is_active %}
-        <button class="btn btn-primary" onclick="focusSession('{{ session.id }}')">📺 Focus in iTerm2</button>
+        <button class="btn btn-primary" onclick="focusSession('{{ session.id }}')">📺 Focus</button>
         {% endif %}
-        <button class="btn btn-primary" onclick="resumeSession('{{ session.id }}')">Resume in iTerm2</button>
+        {% if copilot_available %}
+        <button class="btn btn-primary" onclick="resumeSession('{{ session.id }}')">Resume</button>
+        {% endif %}
     </div>
 
     <!-- Headless prompt -->
