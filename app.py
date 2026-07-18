@@ -293,9 +293,10 @@ _TERMINAL_BACKEND: str = _detect_terminal()
 def _detect_copilot_cli() -> tuple[list[str], bool]:
     """Return (command_prefix, is_available) for the Copilot CLI.
 
-    Prefers ``agency copilot`` (wrapper), then standalone ``copilot``,
-    then ``gh copilot`` (bundled with GitHub CLI / Copilot desktop app).
-    Override with the AGENCY_CLI env var (e.g. "agency copilot" or "gh copilot").
+    Prefers ``agency copilot`` (wrapper), then standalone ``copilot``.
+    ``gh copilot`` is excluded — it's the shell suggestion tool, not the
+    session CLI that supports ``--resume``.
+    Override with the AGENCY_CLI env var (e.g. "agency copilot").
     """
     override = os.environ.get("AGENCY_CLI", "").strip()
     if override:
@@ -306,8 +307,6 @@ def _detect_copilot_cli() -> tuple[list[str], bool]:
         return ["agency", "copilot"], True
     if shutil.which("copilot"):
         return ["copilot"], True
-    if shutil.which("gh"):
-        return ["gh", "copilot"], True
     return ["copilot"], False
 
 
