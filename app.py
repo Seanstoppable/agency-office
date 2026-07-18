@@ -293,8 +293,9 @@ _TERMINAL_BACKEND: str = _detect_terminal()
 def _detect_copilot_cli() -> tuple[list[str], bool]:
     """Return (command_prefix, is_available) for the Copilot CLI.
 
-    Prefers ``agency copilot`` (wrapper) if available, falls back to ``copilot``.
-    Override with the AGENCY_CLI env var (e.g. "agency copilot" or "copilot").
+    Prefers ``agency copilot`` (wrapper), then standalone ``copilot``,
+    then ``gh copilot`` (bundled with GitHub CLI / Copilot desktop app).
+    Override with the AGENCY_CLI env var (e.g. "agency copilot" or "gh copilot").
     """
     override = os.environ.get("AGENCY_CLI", "").strip()
     if override:
@@ -305,6 +306,8 @@ def _detect_copilot_cli() -> tuple[list[str], bool]:
         return ["agency", "copilot"], True
     if shutil.which("copilot"):
         return ["copilot"], True
+    if shutil.which("gh"):
+        return ["gh", "copilot"], True
     return ["copilot"], False
 
 
