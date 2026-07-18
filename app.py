@@ -290,6 +290,24 @@ def _detect_terminal() -> str:
 _TERMINAL_BACKEND: str = _detect_terminal()
 
 
+def _detect_copilot_cli() -> list[str]:
+    """Return the command prefix for the Copilot CLI.
+
+    Prefers ``agency copilot`` (wrapper) if available, falls back to ``copilot``.
+    Override with the AGENCY_CLI env var (e.g. "agency copilot" or "copilot").
+    """
+    override = os.environ.get("AGENCY_CLI", "").strip()
+    if override:
+        return override.split()
+
+    if shutil.which("agency"):
+        return ["agency", "copilot"]
+    return ["copilot"]
+
+
+_COPILOT_CMD: list[str] = _detect_copilot_cli()
+
+
 def _launch_in_terminal(cmd: str, cwd: str) -> dict:
     """Open a new terminal tab/window and run *cmd* in *cwd*.
 
@@ -667,7 +685,7 @@ async def launch_session(request: Request):
     cwd = body.get("cwd", os.path.expanduser("~"))
     prompt = body.get("prompt", "")
 
-    cmd = "agency copilot"
+    cmd = " ".join(_COPILOT_CMD)
     if prompt:
         cmd += f' -p "{prompt}"'
 
@@ -683,7 +701,7 @@ async def resume_session(session_id: str):
     ws = get_workspace_yaml(session_id)
     cwd = ws.get("cwd", os.path.expanduser("~"))
 
-    cmd = f"agency copilot --resume {session_id}"
+    cmd = f"{' '.join(_COPILOT_CMD)} --resume {session_id}"
 
     result = _launch_in_terminal(cmd, cwd)
     if result["status"] == "error":
@@ -854,7 +872,7 @@ async def headless_prompt(request: Request):
 
     job_id = f"job-{datetime.now().strftime('%H%M%S')}-{os.getpid()}"
 
-    cmd = ["agency", "copilot", "-p", prompt, "--yolo"]
+    cmd = [*_COPILOT_CMD, "-p", prompt, "--yolo"]
     if session_id:
         cmd.extend(["--resume", session_id])
 

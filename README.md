@@ -130,6 +130,10 @@ by platform, or set the `AGENCY_TERMINAL` env var to override:
 
 Focus (switching to an existing session's tab) is currently only supported with iTerm2.
 
+The CLI command is auto-detected: `agency copilot` if the Agency wrapper is
+installed, otherwise plain `copilot`. Override with `AGENCY_CLI` env var
+(e.g. `AGENCY_CLI="copilot"` or `AGENCY_CLI="agency copilot"`).
+
 ## How It Works
 
 **Session discovery**: Reads `~/.copilot/session-store.db` (SQLite, WAL mode, read-only) for sessions, turns, checkpoints, file refs, and git refs.
