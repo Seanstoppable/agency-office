@@ -7,6 +7,7 @@ and session interaction capabilities.
 """
 
 import asyncio
+import ctypes
 import os
 import platform
 import re
@@ -18,6 +19,8 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from contextlib import contextmanager
+
+_SYSTEM = platform.system()  # "Darwin", "Linux", or "Windows"
 
 from fastapi import FastAPI, Request, Query
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
@@ -51,21 +54,71 @@ def get_db():
 
 def _get_boot_time() -> float | None:
     """Return system boot time as a Unix timestamp, or None if unavailable."""
-    if platform.system() != "Darwin":
-        return None
-    try:
-        out = subprocess.check_output(
-            ["sysctl", "-n", "kern.boottime"], text=True, timeout=2
-        )
-        # Format: "{ sec = 1780060515, usec = 596311 } Fri May 29 ..."
-        match = re.search(r"sec\s*=\s*(\d+)", out)
-        return float(match.group(1)) if match else None
-    except (subprocess.SubprocessError, OSError):
-        return None
+    import time
+
+    if _SYSTEM == "Darwin":
+        try:
+            out = subprocess.check_output(
+                ["sysctl", "-n", "kern.boottime"], text=True, timeout=2
+            )
+            # Format: "{ sec = 1780060515, usec = 596311 } Fri May 29 ..."
+            match = re.search(r"sec\s*=\s*(\d+)", out)
+            return float(match.group(1)) if match else None
+        except (subprocess.SubprocessError, OSError):
+            return None
+
+    if _SYSTEM == "Linux":
+        try:
+            with open("/proc/stat") as f:
+                for line in f:
+                    if line.startswith("btime "):
+                        return float(line.split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+
+    if _SYSTEM == "Windows":
+        try:
+            # GetTickCount64 returns ms since boot
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            kernel32.GetTickCount64.restype = ctypes.c_uint64
+            uptime_ms = kernel32.GetTickCount64()
+            return time.time() - (uptime_ms / 1000.0)
+        except (AttributeError, OSError):
+            return None
+
+    return None
 
 
 # Cache boot time at module load — it won't change while we're running
 _BOOT_TIMESTAMP: float | None = _get_boot_time()
+
+
+def _pid_is_alive(pid: int) -> bool:
+    """Check whether a process with the given PID is running.
+
+    Safe on all platforms — unlike os.kill(pid, 0) which terminates the
+    process on Windows.
+    """
+    if _SYSTEM == "Windows":
+        try:
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(  # type: ignore[attr-defined]
+                PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+            )
+            if handle:
+                ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
+                return True
+            return False
+        except (AttributeError, OSError):
+            return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # alive but owned by another user
 
 
 def get_active_sessions() -> dict[str, int]:
@@ -92,9 +145,10 @@ def get_active_sessions() -> dict[str, int]:
             # Skip lock files from before this boot — PID is stale
             if _BOOT_TIMESTAMP and mtime < _BOOT_TIMESTAMP:
                 continue
-            os.kill(pid, 0)  # check if alive
+            if not _pid_is_alive(pid):
+                continue
             pid_candidates.setdefault(pid, []).append((session_id, mtime))
-        except (ValueError, ProcessLookupError, PermissionError, OSError):
+        except (ValueError, OSError):
             pass
 
     # For each PID, keep only the session with the newest lock file
@@ -211,6 +265,195 @@ def get_events_summary(session_id: str, max_events: int = 50) -> list[dict]:
     return events[-max_events:]
 
 
+# --- Terminal backend abstraction ---
+
+def _detect_terminal() -> str:
+    """Auto-detect the best terminal backend for this platform.
+
+    Override with the AGENCY_TERMINAL env var (iterm2, wt, kitty, wezterm, gnome-terminal).
+    """
+    override = os.environ.get("AGENCY_TERMINAL", "").strip().lower()
+    if override:
+        return override
+
+    if _SYSTEM == "Darwin":
+        return "iterm2"
+    if _SYSTEM == "Windows":
+        return "wt"
+    # Linux: try popular terminals with scripting support
+    for term in ("kitty", "wezterm", "gnome-terminal", "xterm"):
+        if shutil.which(term):
+            return term
+    return "fallback"
+
+
+_TERMINAL_BACKEND: str = _detect_terminal()
+
+
+def _detect_copilot_cli() -> tuple[list[str], bool]:
+    """Return (command_prefix, is_available) for the Copilot CLI.
+
+    Prefers ``agency copilot`` (wrapper), then standalone ``copilot``.
+    ``gh copilot`` is excluded — it's the shell suggestion tool, not the
+    session CLI that supports ``--resume``.
+    Override with the AGENCY_CLI env var (e.g. "agency copilot").
+    """
+    override = os.environ.get("AGENCY_CLI", "").strip()
+    if override:
+        parts = override.split()
+        return parts, shutil.which(parts[0]) is not None
+
+    if shutil.which("agency"):
+        return ["agency", "copilot"], True
+    if shutil.which("copilot"):
+        return ["copilot"], True
+    return ["copilot"], False
+
+
+_COPILOT_CMD, _COPILOT_AVAILABLE = _detect_copilot_cli()
+
+
+def _launch_in_terminal(cmd: str, cwd: str) -> dict:
+    """Open a new terminal tab/window and run *cmd* in *cwd*.
+
+    Returns {"status": "ok"|"error", "message": "..."}.
+    """
+    backend = _TERMINAL_BACKEND
+
+    if backend == "iterm2":
+        ascript = f'''
+        tell application "iTerm"
+            activate
+            tell current window
+                create tab with default profile
+                tell current session
+                    write text "cd {_shell_quote(cwd)} && {cmd}"
+                end tell
+            end tell
+        end tell
+        '''
+        try:
+            subprocess.run(["osascript", "-e", ascript], check=True, capture_output=True)
+            return {"status": "ok", "message": f"Launched in iTerm2: {cwd}"}
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            return {"status": "error", "message": str(e)}
+
+    if backend == "wt":
+        # Windows Terminal — open a new tab with the command
+        try:
+            subprocess.Popen(
+                ["wt", "-w", "0", "nt", "-d", cwd, "cmd", "/k", cmd],
+                creationflags=subprocess.DETACHED_PROCESS,
+            )
+            return {"status": "ok", "message": f"Launched in Windows Terminal: {cwd}"}
+        except FileNotFoundError:
+            # Fall back to plain cmd.exe
+            try:
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "cmd", "/k", f"cd /d {cwd} && {cmd}"],
+                    creationflags=subprocess.DETACHED_PROCESS,
+                )
+                return {"status": "ok", "message": f"Launched in cmd.exe: {cwd}"}
+            except OSError as e:
+                return {"status": "error", "message": str(e)}
+
+    if backend == "kitty":
+        try:
+            subprocess.Popen(
+                ["kitty", "@", "launch", "--type=tab", "--cwd", cwd, "sh", "-c", cmd],
+            )
+            return {"status": "ok", "message": f"Launched in kitty: {cwd}"}
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            return {"status": "error", "message": str(e)}
+
+    if backend == "wezterm":
+        try:
+            subprocess.Popen(
+                ["wezterm", "cli", "spawn", "--cwd", cwd, "--", "sh", "-c", cmd],
+            )
+            return {"status": "ok", "message": f"Launched in wezterm: {cwd}"}
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            return {"status": "error", "message": str(e)}
+
+    if backend == "gnome-terminal":
+        try:
+            subprocess.Popen(
+                ["gnome-terminal", "--tab", "--working-directory", cwd, "--", "sh", "-c", cmd],
+            )
+            return {"status": "ok", "message": f"Launched in gnome-terminal: {cwd}"}
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            return {"status": "error", "message": str(e)}
+
+    return {
+        "status": "error",
+        "message": f"No supported terminal found. Set AGENCY_TERMINAL env var. Command: cd {cwd} && {cmd}",
+    }
+
+
+def _focus_terminal_session(pid: int, session_id: str) -> dict:
+    """Try to focus the terminal tab running the given PID.
+
+    Only supported on macOS (iTerm2). Other platforms return an error with guidance.
+    """
+    if _TERMINAL_BACKEND != "iterm2":
+        return {
+            "status": "error",
+            "message": "Focus is only supported with iTerm2 on macOS",
+        }
+
+    # Get the tty for this PID
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "tty="],
+            capture_output=True, text=True, check=True
+        )
+        tty = result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return {"status": "error", "message": f"Could not find tty for PID {pid}"}
+
+    if not tty or tty == "??":
+        return {"status": "error", "message": f"PID {pid} has no controlling terminal"}
+
+    ascript = f'''
+    tell application "iTerm2"
+        activate
+        repeat with w in windows
+            repeat with t in tabs of w
+                repeat with s in sessions of t
+                    if tty of s contains "{tty}" then
+                        select t
+                        tell w to select
+                        return "ok"
+                    end if
+                end repeat
+            end repeat
+        end repeat
+        return "not found"
+    end tell
+    '''
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", ascript],
+            capture_output=True, text=True, check=True
+        )
+        if "not found" in result.stdout:
+            return {"status": "error", "message": f"No iTerm2 tab found for tty {tty}"}
+        return {"status": "ok", "message": f"Focused session {session_id[:8]}…"}
+    except subprocess.CalledProcessError as e:
+        return {"status": "error", "message": str(e)}
+
+
+def _shell_quote(s: str) -> str:
+    """Minimal quoting for embedding in shell / AppleScript strings."""
+    if _SYSTEM == "Windows":
+        # For cmd.exe, wrap in double quotes if spaces present
+        if " " in s:
+            return f'"{s}"'
+        return s
+    # Unix: replace single quotes for shell safety
+    return s.replace("'", "'\\''")
+
+
 # --- Jinja2 filters ---
 
 def time_ago(dt_str: str | None) -> str:
@@ -254,6 +497,11 @@ def truncate(text: str | None, length: int = 80) -> str:
 templates.env.filters["time_ago"] = time_ago
 templates.env.filters["short_repo"] = short_repo
 templates.env.filters["truncate"] = truncate
+
+# Expose platform capabilities to all templates
+templates.env.globals["copilot_available"] = _COPILOT_AVAILABLE
+templates.env.globals["copilot_cmd"] = " ".join(_COPILOT_CMD)
+templates.env.globals["terminal_backend"] = _TERMINAL_BACKEND
 
 
 # --- Routes ---
@@ -442,69 +690,48 @@ async def api_sessions():
 
 @app.post("/api/launch", response_class=JSONResponse)
 async def launch_session(request: Request):
-    """Launch a new agency session in iTerm2."""
+    """Launch a new agency session in a terminal."""
+    if not _COPILOT_AVAILABLE:
+        return JSONResponse(
+            {"status": "error", "message": "Copilot CLI not found. Install with: npm install -g @githubnext/copilot-cli"},
+            status_code=501,
+        )
     body = await request.json()
     cwd = body.get("cwd", os.path.expanduser("~"))
     prompt = body.get("prompt", "")
 
-    cmd = f"cd {cwd} && agency copilot"
+    cmd = " ".join(_COPILOT_CMD)
     if prompt:
         cmd += f' -p "{prompt}"'
 
-    # Launch in iTerm2 via AppleScript
-    ascript = f'''
-    tell application "iTerm"
-        activate
-        tell current window
-            create tab with default profile
-            tell current session
-                write text "{cmd}"
-            end tell
-        end tell
-    end tell
-    '''
-    try:
-        subprocess.run(["osascript", "-e", ascript], check=True, capture_output=True)
-        return {"status": "ok", "message": f"Launched in iTerm2: {cwd}"}
-    except subprocess.CalledProcessError as e:
-        return JSONResponse(
-            {"status": "error", "message": str(e)},
-            status_code=500
-        )
+    result = _launch_in_terminal(cmd, cwd)
+    if result["status"] == "error":
+        return JSONResponse(result, status_code=500)
+    return result
 
 
 @app.post("/api/resume/{session_id}", response_class=JSONResponse)
 async def resume_session(session_id: str):
-    """Resume a session in iTerm2."""
+    """Resume a session in a terminal."""
+    if not _COPILOT_AVAILABLE:
+        return JSONResponse(
+            {"status": "error", "message": "Copilot CLI not found. Install with: npm install -g @githubnext/copilot-cli"},
+            status_code=501,
+        )
     ws = get_workspace_yaml(session_id)
     cwd = ws.get("cwd", os.path.expanduser("~"))
 
-    cmd = f"cd {cwd} && agency copilot --resume {session_id}"
+    cmd = f"{' '.join(_COPILOT_CMD)} --resume {session_id}"
 
-    ascript = f'''
-    tell application "iTerm"
-        activate
-        tell current window
-            create tab with default profile
-            tell current session
-                write text "{cmd}"
-            end tell
-        end tell
-    end tell
-    '''
-    try:
-        subprocess.run(["osascript", "-e", ascript], check=True, capture_output=True)
-        return {"status": "ok", "message": f"Resumed session {session_id[:8]}…"}
-    except subprocess.CalledProcessError as e:
-        return JSONResponse(
-            {"status": "error", "message": str(e)},
-            status_code=500
-        )
+    result = _launch_in_terminal(cmd, cwd)
+    if result["status"] == "error":
+        return JSONResponse(result, status_code=500)
+    return result
 
 
 @app.post("/api/focus/{session_id}", response_class=JSONResponse)
 async def focus_session(session_id: str):
-    """Focus the iTerm2 tab running an active session."""
+    """Focus the terminal tab running an active session."""
     active_pids = get_active_sessions()
     pid = active_pids.get(session_id)
     if not pid:
@@ -513,58 +740,11 @@ async def focus_session(session_id: str):
             status_code=404
         )
 
-    # Get the tty for this PID
-    try:
-        result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "tty="],
-            capture_output=True, text=True, check=True
-        )
-        tty = result.stdout.strip()
-    except subprocess.CalledProcessError:
-        return JSONResponse(
-            {"status": "error", "message": f"Could not find tty for PID {pid}"},
-            status_code=500
-        )
-
-    if not tty or tty == "??":
-        return JSONResponse(
-            {"status": "error", "message": f"PID {pid} has no controlling terminal"},
-            status_code=500
-        )
-
-    ascript = f'''
-    tell application "iTerm2"
-        activate
-        repeat with w in windows
-            repeat with t in tabs of w
-                repeat with s in sessions of t
-                    if tty of s contains "{tty}" then
-                        select t
-                        tell w to select
-                        return "ok"
-                    end if
-                end repeat
-            end repeat
-        end repeat
-        return "not found"
-    end tell
-    '''
-    try:
-        result = subprocess.run(
-            ["osascript", "-e", ascript],
-            capture_output=True, text=True, check=True
-        )
-        if "not found" in result.stdout:
-            return JSONResponse(
-                {"status": "error", "message": f"No iTerm2 tab found for tty {tty}"},
-                status_code=404
-            )
-        return {"status": "ok", "message": f"Focused session {session_id[:8]}…"}
-    except subprocess.CalledProcessError as e:
-        return JSONResponse(
-            {"status": "error", "message": str(e)},
-            status_code=500
-        )
+    result = _focus_terminal_session(pid, session_id)
+    if result["status"] == "error":
+        status_code = 404 if "not found" in result["message"].lower() else 500
+        return JSONResponse(result, status_code=status_code)
+    return result
 
 
 # --- Worktree & Git helpers ---
@@ -588,16 +768,12 @@ def get_worktrees() -> list[dict]:
     # Also check common work directories
     work_dir = Path.home() / "code" / "work"
     if work_dir.exists():
-        # Find all git dirs that are worktrees
+        # Find all git dirs that are worktrees (cross-platform, no subprocess)
         try:
-            result = subprocess.run(
-                ["find", str(work_dir), "-maxdepth", "2", "-name", ".git", "-type", "f"],
-                capture_output=True, text=True, timeout=5
-            )
-            for git_file in result.stdout.strip().split("\n"):
-                if not git_file:
+            for git_file in work_dir.glob("*/.git"):
+                if not git_file.is_file():
                     continue
-                wt_dir = str(Path(git_file).parent)
+                wt_dir = str(git_file.parent)
                 try:
                     with open(git_file) as f:
                         content = f.read().strip()
@@ -716,7 +892,7 @@ async def headless_prompt(request: Request):
 
     job_id = f"job-{datetime.now().strftime('%H%M%S')}-{os.getpid()}"
 
-    cmd = ["agency", "copilot", "-p", prompt, "--yolo"]
+    cmd = [*_COPILOT_CMD, "-p", prompt, "--yolo"]
     if session_id:
         cmd.extend(["--resume", session_id])
 
@@ -861,12 +1037,10 @@ def cleanup_stale_locks() -> int:
             # Pre-boot lock files are always stale — PID match is just reuse
             if _BOOT_TIMESTAMP and lock_file.stat().st_mtime < _BOOT_TIMESTAMP:
                 stale = True
-            else:
-                os.kill(pid, 0)  # alive — keep it
-        except (ValueError, ProcessLookupError):
+            elif not _pid_is_alive(pid):
+                stale = True
+        except ValueError:
             stale = True
-        except PermissionError:
-            pass  # alive but can't signal — keep it
         if stale:
             try:
                 lock_file.unlink()
@@ -899,12 +1073,10 @@ async def cleanup_page(
             pid = int(pid_str)
             if _BOOT_TIMESTAMP and lock_file.stat().st_mtime < _BOOT_TIMESTAMP:
                 stale_locks += 1
-            else:
-                os.kill(pid, 0)
-        except (ValueError, ProcessLookupError):
+            elif not _pid_is_alive(pid):
+                stale_locks += 1
+        except ValueError:
             stale_locks += 1
-        except PermissionError:
-            pass
 
     return templates.TemplateResponse(
         request, "cleanup.html",

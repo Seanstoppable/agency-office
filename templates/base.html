@@ -539,7 +539,7 @@
                 </form>
                 <a href="/office" class="{% block nav_office %}{% endblock %}">🏢 The Office</a>
                 <a href="/library" class="{% block nav_library %}{% endblock %}">📚 Library</a>
-                <button class="btn btn-primary" onclick="showLaunchModal()">+ New Session</button>
+                <button class="btn btn-primary" onclick="showLaunchModal()" {% if not copilot_available %}disabled title="Copilot CLI not found"{% endif %}>+ New Session</button>
             </nav>
         </div>
     </header>
@@ -562,7 +562,7 @@
             </div>
             <div class="modal-actions">
                 <button class="btn" onclick="hideLaunchModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="launchSession()">Launch in iTerm2</button>
+                <button class="btn btn-primary" onclick="launchSession()">Launch</button>
             </div>
         </div>
     </div>

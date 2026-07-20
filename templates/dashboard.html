@@ -64,7 +64,7 @@
                 </div>
             </div>
             <div class="session-actions">
-                {% if not s.is_active %}
+                {% if not s.is_active and copilot_available %}
                 <button class="btn btn-primary" onclick="resumeSession('{{ s.id }}')">Resume</button>
                 {% endif %}
                 <a href="/session/{{ s.id }}" class="btn">View</a>

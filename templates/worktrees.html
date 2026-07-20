@@ -38,7 +38,7 @@
                     🗑 Clean Up
                 </button>
                 {% endif %}
-                <button class="btn btn-primary" onclick="launchInWorktree('{{ wt.path }}')">Open Session</button>
+                <button class="btn btn-primary" onclick="launchInWorktree('{{ wt.path }}')" {% if not copilot_available %}disabled{% endif %}>Open Session</button>
             </div>
         </div>
         {% endfor %}

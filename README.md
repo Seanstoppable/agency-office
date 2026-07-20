@@ -82,9 +82,14 @@ Single-file FastAPI app (`app.py`, ~1200 lines) with Jinja2 templates and htmx f
 git clone https://github.com/Seanstoppable/agency-office.git
 cd agency-office
 
-# Setup
+# Setup (macOS / Linux)
 python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+
+# Setup (Windows PowerShell)
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # Run
@@ -95,8 +100,13 @@ python app.py
 Or use the restart script (kills existing, starts fresh, health checks):
 
 ```bash
+# macOS / Linux
 ./restart.sh
 # ✓ Dashboard running at http://127.0.0.1:8420/
+
+# Windows PowerShell
+.\restart.ps1
+# Dashboard running at http://127.0.0.1:8420/
 ```
 
 ## Requirements
@@ -104,6 +114,25 @@ Or use the restart script (kills existing, starts fresh, health checks):
 - Python 3.12+
 - Copilot CLI (the standard `~/.copilot/` directory structure)
 - Dependencies: `fastapi`, `uvicorn`, `jinja2`, `watchfiles`, `aiofiles`
+
+## Terminal Integration
+
+Session launch/resume opens a new terminal tab. The terminal is auto-detected
+by platform, or set the `AGENCY_TERMINAL` env var to override:
+
+| Value | Platform | Notes |
+|-------|----------|-------|
+| `iterm2` | macOS | Default on macOS. Full support including focus. |
+| `wt` | Windows | Default on Windows. Windows Terminal (`wt.exe`), falls back to `cmd.exe`. |
+| `kitty` | Linux | Uses kitty remote control protocol. |
+| `wezterm` | Linux | Uses wezterm CLI. |
+| `gnome-terminal` | Linux | Basic launch support. |
+
+Focus (switching to an existing session's tab) is currently only supported with iTerm2.
+
+The CLI command is auto-detected: `agency copilot` if the Agency wrapper is
+installed, otherwise plain `copilot`. Override with `AGENCY_CLI` env var
+(e.g. `AGENCY_CLI="copilot"` or `AGENCY_CLI="agency copilot"`).
 
 ## How It Works
 
