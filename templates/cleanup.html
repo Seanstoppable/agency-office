@@ -26,26 +26,37 @@
     </div>
 
     <!-- Filters -->
-    <form method="get" action="/cleanup" style="display: flex; gap: 16px; align-items: center; margin-bottom: 24px; flex-wrap: wrap;">
+    <form method="get" action="/cleanup" style="display: flex; gap: 16px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
         <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="hidden" name="no_summary" value="false">
             <input type="checkbox" name="no_summary" value="true" {% if filters.no_summary %}checked{% endif %}
                    style="accent-color: var(--accent);">
             No summary
         </label>
         <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="hidden" name="low_turns" value="false">
             <input type="checkbox" name="low_turns" value="true" {% if filters.low_turns %}checked{% endif %}
                    style="accent-color: var(--accent);">
             ≤1 turn (abandoned)
         </label>
-        <label style="font-size: 13px; display: flex; align-items: center; gap: 6px;">
+        <label style="font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <input type="hidden" name="older_than_enabled" value="false">
+            <input type="checkbox" name="older_than_enabled" value="true"
+                   {% if filters.older_than_enabled %}checked{% endif %}
+                   onchange="toggleAgeFilter(this)"
+                   style="accent-color: var(--accent);">
             Older than
-            <input type="number" name="older_than_days" value="{{ filters.older_than_days }}" min="0" max="365"
+            <input type="number" id="olderThanDays" name="older_than_days" value="{{ filters.older_than_days }}" min="0" max="365"
+                   {% if not filters.older_than_enabled %}disabled{% endif %}
                    style="width: 60px; padding: 4px 8px; background: var(--bg-secondary); border: 1px solid var(--border);
                           border-radius: 4px; color: var(--text); font-size: 13px;">
             days
         </label>
         <button type="submit" class="btn btn-primary">Apply Filters</button>
     </form>
+    <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 24px;">
+        Sessions must match all enabled filters. Disable the age filter to select by session properties only.
+    </p>
 
     <!-- Bulk actions -->
     <div style="display: flex; gap: 8px; margin-bottom: 16px; align-items: center;">
@@ -142,6 +153,10 @@
 
 <script>
 let selectedIds = [];
+
+function toggleAgeFilter(checkbox) {
+    document.getElementById('olderThanDays').disabled = !checkbox.checked;
+}
 
 function selectAll(checked) {
     document.querySelectorAll('.cleanup-check').forEach(cb => cb.checked = checked);

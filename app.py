@@ -519,7 +519,7 @@ def _get_dashboard_data():
             LEFT JOIN turns t ON t.session_id = s.id
             GROUP BY s.id
             ORDER BY s.updated_at DESC
-            LIMIT 200
+            LIMIT 300
         """).fetchall()
 
     enriched = []
@@ -938,10 +938,10 @@ async def headless_status(job_id: str):
 
 def get_cleanup_candidates(
     no_summary: bool = True,
-    low_turns: bool = True,
-    older_than_days: int = 30,
+    low_turns: bool = False,
+    older_than_days: int | None = None,
 ) -> list[dict]:
-    """Find sessions that are candidates for cleanup."""
+    """Find sessions matching every enabled cleanup filter."""
     active_pids = get_active_sessions()
     now = datetime.now(timezone.utc)
 
@@ -966,10 +966,9 @@ def get_cleanup_candidates(
         row = dict(s)
         reasons = []
 
-        # Check reasons
-        if no_summary and not s["summary"]:
+        if not s["summary"]:
             reasons.append("no_summary")
-        if low_turns and (s["turn_count"] or 0) <= 1:
+        if (s["turn_count"] or 0) <= 1:
             reasons.append("low_turns")
 
         age_days = None
@@ -977,12 +976,20 @@ def get_cleanup_candidates(
             try:
                 updated = datetime.fromisoformat(s["updated_at"].replace("Z", "+00:00"))
                 age_days = (now - updated).days
-                if older_than_days and age_days >= older_than_days:
+                if older_than_days is not None and age_days >= older_than_days:
                     reasons.append("old")
             except Exception:
                 pass
 
-        if not reasons:
+        required_reasons = []
+        if no_summary:
+            required_reasons.append("no_summary")
+        if low_turns:
+            required_reasons.append("low_turns")
+        if older_than_days is not None:
+            required_reasons.append("old")
+
+        if not required_reasons or not all(reason in reasons for reason in required_reasons):
             continue
 
         # Get folder size
@@ -1054,14 +1061,15 @@ def cleanup_stale_locks() -> int:
 async def cleanup_page(
     request: Request,
     no_summary: bool = True,
-    low_turns: bool = True,
+    low_turns: bool = False,
+    older_than_enabled: bool = False,
     older_than_days: int = 30,
 ):
     """Session cleanup page with filters and bulk actions."""
     candidates = get_cleanup_candidates(
         no_summary=no_summary,
         low_turns=low_turns,
-        older_than_days=older_than_days,
+        older_than_days=older_than_days if older_than_enabled else None,
     )
     total_size = sum(c["folder_size"] for c in candidates)
 
@@ -1087,6 +1095,7 @@ async def cleanup_page(
             "filters": {
                 "no_summary": no_summary,
                 "low_turns": low_turns,
+                "older_than_enabled": older_than_enabled,
                 "older_than_days": older_than_days,
             },
         },
@@ -1207,7 +1216,7 @@ def _get_office_data():
             LEFT JOIN turns t ON t.session_id = s.id
             GROUP BY s.id
             ORDER BY s.updated_at DESC
-            LIMIT 200
+            LIMIT 300
         """).fetchall()
 
     enriched = []
@@ -1365,7 +1374,7 @@ async def library_view(request: Request):
             LEFT JOIN turns t ON t.session_id = s.id
             GROUP BY s.id
             ORDER BY s.updated_at DESC
-            LIMIT 200
+            LIMIT 300
         """).fetchall()
 
     enriched = []
