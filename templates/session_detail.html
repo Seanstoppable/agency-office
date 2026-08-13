@@ -22,6 +22,7 @@
         {% endif %}
         <span>Created {{ session.created_at | time_ago }}</span>
         <span>Updated {{ session.updated_at | time_ago }}</span>
+        <span class="badge badge-sid" title="Session ID">{{ session.id }}</span>
     </div>
     <div style="margin-top: 12px; display: flex; gap: 8px;">
         {% if session.is_active and terminal_backend == "iterm2" %}

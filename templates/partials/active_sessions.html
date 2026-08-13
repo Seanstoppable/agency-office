@@ -28,6 +28,7 @@
                 {% endif %}
                 <span>{{ s.turn_count }} turns</span>
                 <span>{{ s.updated_at | time_ago }}</span>
+                <span class="badge badge-sid" title="Session ID">{{ s.id }}</span>
             </div>
         </div>
         <div class="session-actions">

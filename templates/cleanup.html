@@ -114,6 +114,7 @@
                         {% endfor %}
                         <span style="font-size: 11px; color: var(--text-dim);">{{ c.folder_size | format_size }}</span>
                         <span style="font-size: 11px; color: var(--text-dim);">{{ c.turn_count or 0 }} turns</span>
+                        <span class="badge badge-sid" title="Session ID">{{ c.id }}</span>
                     </div>
                 </div>
             </div>
