@@ -36,6 +36,7 @@
             {% if r.branch %}
             · <span style="font-size: 11px;">{{ r.branch }}</span>
             {% endif %}
+            · <span class="badge badge-sid" title="Session ID">{{ r.session_id }}</span>
         </div>
         <div class="search-result-content">
             {{ r.content | truncate(300) }}
